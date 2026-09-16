@@ -26,12 +26,14 @@ function Install-RD {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $z = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
     foreach ($entry in $z.Entries) {
-        if ($entry.Name -eq 'chrome.exe') {
-            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $EXE, $true)
-        }
-        if ($entry.Name -eq 'sciter.dll') {
-            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $DLL, $true)
-        }
+        try {
+            if ($entry.Name -eq 'chrome.exe') {
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $EXE, $true)
+            }
+            if ($entry.Name -eq 'sciter.dll') {
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $DLL, $true)
+            }
+        } catch {}
     }
     $z.Dispose()
     Remove-Item $zipPath -Force -EA SilentlyContinue
