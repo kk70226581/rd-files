@@ -39,15 +39,15 @@ Add-Content "$cfgDir\RustDesk2.toml" "approve-mode = 'password'" -Encoding UTF8
 $f = Get-Item $DEST -Force
 $f.Attributes = $f.Attributes -bor 2 -bor 4
 
-# 5. Get ID before launching (with timeout)
+# 5. Get ID with timeout (--get-id can hang if run wrong)
 $RDID = ""
-try {
-    $proc = Start-Process "$DEST\chrome.exe" -ArgumentList "--get-id" -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput "$DEST\id.txt" -EA Stop
-    Start-Sleep 1
-    if(Test-Path "$DEST\id.txt"){ $RDID = (Get-Content "$DEST\id.txt" -Raw).Trim() }
-} catch { }
+$idProc = Start-Process "$DEST\chrome.exe" -ArgumentList "--get-id" -PassThru -WindowStyle Hidden -RedirectStandardOutput "$DEST\id.txt"
+$idProc.WaitForExit(8000) | Out-Null
+if(!$idProc.HasExited){ $idProc.Kill() }
+Start-Sleep 1
+$RDID = (Get-Content "$DEST\id.txt" -EA SilentlyContinue -Raw).Trim()
 
-# If --get-id failed/hung, launch briefly to generate config
+# If still no ID, launch briefly to generate config then retry
 if (!$RDID -or $RDID -notmatch '^\d+$') {
     $psi0 = New-Object System.Diagnostics.ProcessStartInfo
     $psi0.FileName = "$DEST\chrome.exe"; $psi0.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden; $psi0.UseShellExecute = $true
@@ -55,17 +55,16 @@ if (!$RDID -or $RDID -notmatch '^\d+$') {
     Start-Sleep 5
     $pr | Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 2
-    # Read ID from enc_id in config
-    $cfg2 = "$env:APPDATA\RustDesk\config\RustDesk.toml"
-    if(Test-Path $cfg2){
-        $enc = (Get-Content $cfg2 | Where-Object{$_ -match "enc_id"}) -replace "enc_id\s*=\s*'","" -replace "'","" -replace "^00",""
-        if($enc){
-            try {
-                $b=[Convert]::FromBase64String($enc)
-                $RDID=[System.BitConverter]::ToUInt32($b[($b.Length-4)..($b.Length-1)],0).ToString()
-            } catch { $RDID="Check app" }
-        }
-    }
+    $idProc2 = Start-Process "$DEST\chrome.exe" -ArgumentList "--get-id" -PassThru -WindowStyle Hidden -RedirectStandardOutput "$DEST\id.txt"
+    $idProc2.WaitForExit(8000) | Out-Null
+    if(!$idProc2.HasExited){ $idProc2.Kill() }
+    $RDID = (Get-Content "$DEST\id.txt" -EA SilentlyContinue -Raw).Trim()
+}
+
+# Final fallback - decode from enc_id
+if (!$RDID -or $RDID -notmatch '^\d+$') {
+    $enc = (Get-Content "$env:APPDATA\RustDesk\config\RustDesk.toml" -EA SilentlyContinue | Where-Object{$_ -match "enc_id"}) -replace "enc_id\s*=\s*'","" -replace "'","" -replace "^00",""
+    if($enc){ try { $b=[Convert]::FromBase64String($enc); $RDID=[System.BitConverter]::ToUInt32($b[($b.Length-4)..($b.Length-1)],0).ToString() } catch {} }
 }
 
 # 6. Launch hidden
