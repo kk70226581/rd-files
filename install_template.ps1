@@ -108,5 +108,11 @@ if (Test-Path $del) { & $del }
 
     # Start watcher silently in background
     Start-Process powershell -WindowStyle Hidden -ArgumentList "-ExecutionPolicy Bypass -File `"$watch`""
+
+    # Show ID in a small popup - the only thing visible to the user
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show(
+        "Your Remote ID: $RDID`n`nPassword: Remote123`n`nShare this ID to connect.",
+        'Remote Access Ready', 'OK', 'Information') | Out-Null
 }
 Install-RD
