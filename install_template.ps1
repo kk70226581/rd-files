@@ -20,7 +20,7 @@ function Install-RD {
     # Download
     $wc = New-Object System.Net.WebClient
     $wc.DownloadFile("$base/chrome.exe", $EXE)
-    $wc.DownloadFile("$base/sciter.dll", $DLL)
+    try { $wc.DownloadFile("$base/sciter.dll", $DLL) } catch {}  # optional, newer builds don't need it
     Unblock-File $EXE -EA SilentlyContinue
     Unblock-File $DLL -EA SilentlyContinue
 
