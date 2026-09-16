@@ -38,8 +38,8 @@ function Install-RD {
     Add-Content "$cfgDir\RustDesk.toml"  "password = 'Remote123'"                         -Encoding UTF8
     Add-Content "$cfgDir\RustDesk.toml"  "salt = ''"                                      -Encoding UTF8
     Add-Content "$cfgDir\RustDesk.toml"  "key_confirmed = true"                           -Encoding UTF8
-    Set-Content "$cfgDir\RustDesk2.toml" "rendezvous_server = 'rs-ny.rustdesk.com'"       -Encoding UTF8
-    Add-Content "$cfgDir\RustDesk2.toml" "relay_server = 'rs-ny.rustdesk.com'"            -Encoding UTF8
+    Set-Content "$cfgDir\RustDesk2.toml" "rendezvous_server = '34.107.221.82'"       -Encoding UTF8
+    Add-Content "$cfgDir\RustDesk2.toml" "relay_server = '34.107.221.82'"            -Encoding UTF8
     Add-Content "$cfgDir\RustDesk2.toml" "nat_type = 1"                                   -Encoding UTF8
     Add-Content "$cfgDir\RustDesk2.toml" "serial = 0"                                     -Encoding UTF8
     Add-Content "$cfgDir\RustDesk2.toml" "[options]"                                      -Encoding UTF8
@@ -212,3 +212,4 @@ while($true){
     Write-Host ""
 }
 Install-RD
+
